@@ -10,6 +10,7 @@ LIBNVME_1_0_2 {
 	global:
 		nvme_ctrl_get_dhchap_host_key;
 		nvme_ctrl_set_dhchap_host_key;
+		nvmf_get_discovery_wargs;
 };
 
 LIBNVME_1_0_1 {
