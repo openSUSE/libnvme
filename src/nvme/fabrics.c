@@ -444,6 +444,7 @@ static int build_options(nvme_host_t h, nvme_ctrl_t c, char **argstr)
 	}
 	if (!strcmp(nvme_ctrl_get_subsysnqn(c), NVME_DISC_SUBSYS_NAME)) {
 		nvme_ctrl_set_discovery_ctrl(c, true);
+		nvme_ctrl_set_unique_discovery_ctrl(c, false);
 		discovery_nqn = true;
 	}
 	if (nvme_ctrl_is_discovery_ctrl(c))
@@ -718,11 +719,15 @@ nvme_ctrl_t nvmf_connect_disc_entry(nvme_host_t h,
 	switch (e->subtype) {
 	case NVME_NQN_CURR:
 		nvme_ctrl_set_discovered(c, true);
+		nvme_ctrl_set_unique_discovery_ctrl(c,
+				strcmp(e->subnqn, NVME_DISC_SUBSYS_NAME));
 		break;
 	case NVME_NQN_DISC:
 		if (discover)
 			*discover = true;
 		nvme_ctrl_set_discovery_ctrl(c, true);
+		nvme_ctrl_set_unique_discovery_ctrl(c,
+				strcmp(e->subnqn, NVME_DISC_SUBSYS_NAME));
 		break;
 	default:
 		nvme_msg(h->r, LOG_ERR, "unsupported subtype %d\n",
@@ -730,6 +735,7 @@ nvme_ctrl_t nvmf_connect_disc_entry(nvme_host_t h,
 		/* fallthrough */
 	case NVME_NQN_NVME:
 		nvme_ctrl_set_discovery_ctrl(c, false);
+		nvme_ctrl_set_unique_discovery_ctrl(c, false);
 		break;
 	}
 
