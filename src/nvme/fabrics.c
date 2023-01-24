@@ -893,6 +893,8 @@ out_free_log:
 int nvmf_get_discovery_log(nvme_ctrl_t c, struct nvmf_discovery_log **logp,
 			   int max_retries)
 {
+	struct nvmf_discovery_log *log;
+
 	struct nvme_get_log_args args = {
 		.args_size = sizeof(args),
 		.fd = nvme_ctrl_get_fd(c),
@@ -909,12 +911,22 @@ int nvmf_get_discovery_log(nvme_ctrl_t c, struct nvmf_discovery_log **logp,
 		.rae = false,
 		.ot = false,
 	};
-	*logp = nvme_discovery_log(c, &args, max_retries);
-	return logp ? 0 : -1;
+
+	log = nvme_discovery_log(c, &args, max_retries);
+	if (!log)
+		return -1;
+
+	for (int i = 0; i < le64_to_cpu(log->numrec); i++)
+		sanitize_discovery_log_entry(&log->entries[i]);
+
+	*logp = log;
+	return 0;
 }
 
 struct nvmf_discovery_log *nvmf_get_discovery_wargs(struct nvme_get_discovery_args *args)
 {
+	struct nvmf_discovery_log *log;
+
 	struct nvme_get_log_args _args = {
 		.args_size = sizeof(_args),
 		.fd = nvme_ctrl_get_fd(args->c),
@@ -932,7 +944,14 @@ struct nvmf_discovery_log *nvmf_get_discovery_wargs(struct nvme_get_discovery_ar
 		.ot = false,
 	};
 
-	return nvme_discovery_log(args->c, &_args, args->max_retries);
+	log = nvme_discovery_log(args->c, &_args, args->max_retries);
+	if (!log)
+		return NULL;
+
+	for (int i = 0; i < le64_to_cpu(log->numrec); i++)
+		sanitize_discovery_log_entry(&log->entries[i]);
+
+	return log;
 }
 
 #define PATH_UUID_IBM	"/proc/device-tree/ibm,partition-uuid"
