@@ -665,8 +665,6 @@ nvme_ctrl_t nvmf_connect_disc_entry(nvme_host_t h,
 		switch (e->adrfam) {
 		case NVMF_ADDR_FAMILY_IP4:
 		case NVMF_ADDR_FAMILY_IP6:
-			strchomp(e->traddr, NVMF_TRADDR_SIZE - 1);
-			strchomp(e->trsvcid, NVMF_TRSVCID_SIZE - 1);
 			traddr = e->traddr;
 			trsvcid = e->trsvcid;
 			break;
@@ -681,7 +679,6 @@ nvme_ctrl_t nvmf_connect_disc_entry(nvme_host_t h,
         case NVMF_TRTYPE_FC:
 		switch (e->adrfam) {
 		case NVMF_ADDR_FAMILY_FC:
-			strchomp(e->traddr, NVMF_TRADDR_SIZE - 1);
 			traddr = e->traddr;
 			break;
 		default:
@@ -693,7 +690,6 @@ nvme_ctrl_t nvmf_connect_disc_entry(nvme_host_t h,
 		}
 		break;
 	case NVMF_TRTYPE_LOOP:
-		strchomp(e->traddr, NVMF_TRADDR_SIZE - 1);
 		traddr = strlen(e->traddr) ? e->traddr : NULL;
 		break;
 	default:
@@ -766,6 +762,32 @@ nvme_ctrl_t nvmf_connect_disc_entry(nvme_host_t h,
 	}
 	nvme_free_ctrl(c);
 	return NULL;
+}
+
+static void sanitize_discovery_log_entry(struct nvmf_disc_log_entry  *e)
+{
+	switch (e->trtype) {
+	case NVMF_TRTYPE_RDMA:
+	case NVMF_TRTYPE_TCP:
+		switch (e->adrfam) {
+		case NVMF_ADDR_FAMILY_IP4:
+		case NVMF_ADDR_FAMILY_IP6:
+			strchomp(e->traddr, NVMF_TRADDR_SIZE - 1);
+			strchomp(e->trsvcid, NVMF_TRSVCID_SIZE - 1);
+			break;
+		}
+		break;
+        case NVMF_TRTYPE_FC:
+		switch (e->adrfam) {
+		case NVMF_ADDR_FAMILY_FC:
+			strchomp(e->traddr, NVMF_TRADDR_SIZE - 1);
+			break;
+		}
+		break;
+	case NVMF_TRTYPE_LOOP:
+		strchomp(e->traddr, NVMF_TRADDR_SIZE - 1);
+		break;
+	}
 }
 
 static int nvme_discovery_log(int fd, __u32 len, struct nvmf_discovery_log *log, bool rae)
@@ -865,6 +887,9 @@ int nvmf_get_discovery_log(nvme_ctrl_t c, struct nvmf_discovery_log **logp,
 		errno = EBADSLT;
 		ret = -1;
 	} else {
+		for (int i = 0; i < le64_to_cpu(log->numrec); i++)
+			sanitize_discovery_log_entry(&log->entries[i]);
+
 		*logp = log;
 		return 0;
 	}
