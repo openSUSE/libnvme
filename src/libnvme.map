@@ -21,6 +21,11 @@ LIBNVME_1_3 {
 		nvme_host_set_pdc_enabled;
 };
 
+LIBNVME_1_2_1 {
+		nbft_read;
+		nbft_free;
+};
+
 LIBNVME_1_2 {
 	global:
 		nvme_ctrl_get_dhchap_host_key;
@@ -379,8 +384,6 @@ LIBNVME_1_0 {
 		nvmf_treq_str;
 		nvmf_trtype_str;
 		nvmf_update_config;
-		nbft_read;
-		nbft_free;
 	local:
 		*;
 };
