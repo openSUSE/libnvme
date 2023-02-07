@@ -777,6 +777,7 @@ nvme_ctrl_t nvmf_connect_disc_entry(nvme_host_t h,
 	return NULL;
 }
 
+
 static void sanitize_discovery_log_entry(struct nvmf_disc_log_entry  *e)
 {
 	switch (e->trtype) {
@@ -785,20 +786,20 @@ static void sanitize_discovery_log_entry(struct nvmf_disc_log_entry  *e)
 		switch (e->adrfam) {
 		case NVMF_ADDR_FAMILY_IP4:
 		case NVMF_ADDR_FAMILY_IP6:
-			strchomp(e->traddr, NVMF_TRADDR_SIZE - 1);
-			strchomp(e->trsvcid, NVMF_TRSVCID_SIZE - 1);
+			strchomp(e->traddr, NVMF_TRADDR_SIZE);
+			strchomp(e->trsvcid, NVMF_TRSVCID_SIZE);
 			break;
 		}
 		break;
         case NVMF_TRTYPE_FC:
 		switch (e->adrfam) {
 		case NVMF_ADDR_FAMILY_FC:
-			strchomp(e->traddr, NVMF_TRADDR_SIZE - 1);
+			strchomp(e->traddr, NVMF_TRADDR_SIZE);
 			break;
 		}
 		break;
 	case NVMF_TRTYPE_LOOP:
-		strchomp(e->traddr, NVMF_TRADDR_SIZE - 1);
+		strchomp(e->traddr, NVMF_TRADDR_SIZE);
 		break;
 	}
 }
