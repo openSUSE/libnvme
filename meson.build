@@ -51,6 +51,9 @@ conf.set('PROJECT_VERSION', '"@0@"'.format(meson.project_version()))
 
 conf.set('SYSCONFDIR', '"@0@"'.format(sysconfdir))
 
+libuuid_dep = dependency('uuid', required: true)
+conf.set('CONFIG_LIBUUID', libuuid_dep.found(), description: 'Is libuuid required?')
+
 if get_option('json-c').disabled()
     json_c_dep = dependency('', required: false)
 else
