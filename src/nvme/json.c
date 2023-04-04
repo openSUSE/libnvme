@@ -17,6 +17,7 @@
 #include "fabrics.h"
 #include "log.h"
 #include "private.h"
+#include "linux.h"
 
 #define JSON_UPDATE_INT_OPTION(c, k, a, o)				\
 	if (!strcmp(# a, k ) && !c->a) c->a = json_object_get_int(o);
@@ -64,6 +65,27 @@ static void json_update_attributes(nvme_ctrl_t c,
 		if (!strcmp("discovery", key_str) &&
 		    !nvme_ctrl_is_discovery_ctrl(c))
 			nvme_ctrl_set_discovery_ctrl(c, true);
+		/*
+		 * The JSON configuration holds the keyring description
+		 * which needs to be converted into the keyring serial number.
+		 */
+		if (!strcmp("keyring", key_str) && cfg->keyring == 0) {
+			long keyring;
+
+			keyring = nvme_lookup_keyring(json_object_get_string(val_obj));
+			if (keyring) {
+				cfg->keyring = keyring;
+				nvme_set_keyring(cfg->keyring);
+			}
+		}
+		if (!strcmp("tls_key", key_str) && cfg->tls_key == 0) {
+			long key;
+
+			key = nvme_lookup_key("psk",
+					      json_object_get_string(val_obj));
+			if (key)
+				cfg->tls_key = key;
+		}
 	}
 }
 
@@ -148,6 +170,9 @@ static void json_parse_host(nvme_root_t r, struct json_object *host_obj)
 	attr_obj = json_object_object_get(host_obj, "hostsymname");
 	if (attr_obj)
 		nvme_host_set_hostsymname(h, json_object_get_string(attr_obj));
+	attr_obj = json_object_object_get(host_obj, "persistent_discovery_ctrl");
+	if (attr_obj)
+		nvme_host_set_pdc_enabled(h, json_object_get_boolean(attr_obj));
 	subsys_array = json_object_object_get(host_obj, "subsystems");
 	if (!subsys_array)
 		return;
@@ -296,6 +321,28 @@ static void json_update_port(struct json_object *ctrl_array, nvme_ctrl_t c)
 	if (nvme_ctrl_is_discovery_ctrl(c))
 		json_object_object_add(port_obj, "discovery",
 				       json_object_new_boolean(true));
+	/*
+	 * Store the keyring description in the JSON config file.
+	 */
+	if (cfg->keyring) {
+		char *desc = nvme_describe_key_serial(cfg->keyring);
+
+		if (desc) {
+			json_object_object_add(port_obj, "keyring",
+					       json_object_new_string(desc));
+			free(desc);
+		}
+	}
+	if (cfg->tls_key) {
+		char *desc = nvme_describe_key_serial(cfg->tls_key);
+
+		if (desc) {
+			json_object_object_add(port_obj, "tls_key",
+					       json_object_new_string(desc));
+			free(desc);
+		}
+	}
+
 	json_object_array_add(ctrl_array, port_obj);
 }
 
@@ -354,6 +401,9 @@ int json_update_config(nvme_root_t r, const char *config_file)
 		if (hostsymname)
 			json_object_object_add(host_obj, "hostsymname",
 					       json_object_new_string(hostsymname));
+		if (h->pdc_enabled_valid)
+			json_object_object_add(host_obj, "persistent_discovery_ctrl",
+					       json_object_new_boolean(h->pdc_enabled));
 		subsys_array = json_object_new_array();
 		nvme_for_each_subsystem(h, s) {
 			json_update_subsys(subsys_array, s);
@@ -492,6 +542,9 @@ int json_dump_tree(nvme_root_t r)
 		if (dhchap_key)
 			json_object_object_add(host_obj, "dhchap_key",
 					       json_object_new_string(dhchap_key));
+		if (h->pdc_enabled_valid)
+			json_object_object_add(host_obj, "persistent_discovery_ctrl",
+					       json_object_new_boolean(h->pdc_enabled));
 		subsys_array = json_object_new_array();
 		nvme_for_each_subsystem(h, s) {
 			json_dump_subsys(subsys_array, s);

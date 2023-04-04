@@ -403,6 +403,17 @@ nvme_root_t nvme_mi_create_root(FILE *fp, int log_level);
  */
 void nvme_mi_free_root(nvme_root_t root);
 
+/**
+ * nvme_mi_set_probe_enabled() - enable/disable the probe for new endpoints
+ * @root: &nvme_root_t object
+ * @enabled: whether to probe new endpoints
+ *
+ * Controls whether newly-created endpoints are probed for quirks on creation.
+ * Defaults to enabled, which results in some initial messaging with the
+ * endpoint to determine model-specific details.
+ */
+void nvme_mi_set_probe_enabled(nvme_root_t root, bool enabled);
+
 /* Top level management object: NVMe-MI Management Endpoint */
 struct nvme_mi_ep;
 
@@ -956,6 +967,46 @@ int nvme_mi_admin_xfer(nvme_mi_ctrl_t ctrl,
 		       size_t *resp_data_size);
 
 /**
+ * nvme_mi_admin_admin_passthru() - Submit an nvme admin passthrough command
+ * @ctrl: Controller to send command to
+ * @opcode:	The nvme admin command to send
+ * @flags:	NVMe command flags (not used)
+ * @rsvd:	Reserved for future use
+ * @nsid:	Namespace identifier
+ * @cdw2:	Command dword 2
+ * @cdw3:	Command dword 3
+ * @cdw10:	Command dword 10
+ * @cdw11:	Command dword 11
+ * @cdw12:	Command dword 12
+ * @cdw13:	Command dword 13
+ * @cdw14:	Command dword 14
+ * @cdw15:	Command dword 15
+ * @data_len:	Length of the data transferred in this command in bytes
+ * @data:	Pointer to user address of the data buffer
+ * @metadata_len:Length of metadata transferred in this command(not used)
+ * @metadata:	Pointer to user address of the metadata buffer(not used)
+ * @timeout_ms:	How long to wait for the command to complete
+ * @result:	Optional field to return the result from the CQE dword 0
+ *
+ * Send a customized NVMe Admin command request message and get the corresponding
+ * response message.
+ *
+ * This interface supports no data, host to controller and controller to
+ * host but it doesn't support bidirectional data transfer.
+ * Also this interface only supports data transfer size range [0, 4096] (bytes)
+ * so the & data_len parameter must be less than 4097.
+ *
+ * Return: The nvme command status if a response was received (see
+ * &enum nvme_status_field) or -1 with errno set otherwise.
+ */
+int nvme_mi_admin_admin_passthru(nvme_mi_ctrl_t ctrl, __u8 opcode, __u8 flags,
+				 __u16 rsvd, __u32 nsid, __u32 cdw2, __u32 cdw3,
+				 __u32 cdw10, __u32 cdw11, __u32 cdw12,
+				 __u32 cdw13, __u32 cdw14, __u32 cdw15,
+				 __u32 data_len, void *data, __u32 metadata_len,
+				 void *metadata, __u32 timeout_ms, __u32 *result);
+
+/**
  * nvme_mi_admin_identify_partial() - Perform an Admin identify command,
  * and retrieve partial response data.
  * @ctrl: Controller to process identify command
@@ -1202,7 +1253,7 @@ static inline int nvme_mi_admin_identify_nsid_ctrl_list(nvme_mi_ctrl_t ctrl,
 		.result = NULL,
 		.data = list,
 		.args_size = sizeof(args),
-		.cns = NVME_IDENTIFY_CNS_CTRL_LIST,
+		.cns = NVME_IDENTIFY_CNS_NS_CTRL_LIST,
 		.csi = NVME_CSI_NVM,
 		.nsid = nsid,
 		.cntid = cntid,
@@ -1365,6 +1416,28 @@ static inline int nvme_mi_admin_identify_secondary_ctrl_list(nvme_mi_ctrl_t ctrl
 
 	return nvme_mi_admin_identify(ctrl, &args);
 }
+
+/**
+ * nvme_mi_admin_get_log_page() - Retrieve log page data from controller
+ * @ctrl: Controller to query
+ * @xfer_len: The chunk size of the read
+ * @args: Get Log Page command arguments
+ *
+ * Performs a Get Log Page Admin command as specified by @args. Response data
+ * is stored in @args->data, which should be a buffer of @args->data_len bytes.
+ * Resulting data length is stored in @args->data_len on successful
+ * command completion.
+ *
+ * This request may be implemented as multiple log page commands, in order
+ * to fit within MI message-size limits.
+ *
+ * Return: The nvme command status if a response was received (see
+ * &enum nvme_status_field) or -1 with errno set otherwise.
+ *
+ * See: &struct nvme_get_log_args
+ */
+int nvme_mi_admin_get_log_page(nvme_mi_ctrl_t ctrl, __u32 xfer_len,
+			       struct nvme_get_log_args *args);
 
 /**
  * nvme_mi_admin_get_log() - Retrieve log page data from controller

@@ -325,7 +325,7 @@ static const char * const media_status[] = {
 };
 
 static const char * const path_status[] = {
-	[NVME_SC_ANA_INTERNAL_PATH_ERROR] = "Internal Path Error: An internal error specific to the controller processing the commmand prevented completion",
+	[NVME_SC_ANA_INTERNAL_PATH_ERROR] = "Internal Path Error: An internal error specific to the controller processing the command prevented completion",
 	[NVME_SC_ANA_PERSISTENT_LOSS]	  = "Asymmetric Access Persistent Loss: The controller is in a persistent loss state with the requested namespace",
 	[NVME_SC_ANA_INACCESSIBLE]	  = "Asymmetric Access Inaccessible: The controller is in an inaccessible state with the requested namespace",
 	[NVME_SC_ANA_TRANSITION]	  = "Asymmetric Access Transition: The controller is currently transitioning states with the requested namespace",
@@ -403,14 +403,17 @@ void nvme_init_copy_range_f1(struct nvme_copy_range_f1 *copy, __u16 *nlbs,
 			  __u64 *slbas, __u64 *eilbrts, __u32 *elbatms,
 			  __u32 *elbats, __u16 nr)
 {
-	int i;
+	int i, j;
 
 	for (i = 0; i < nr; i++) {
 		copy[i].nlb = cpu_to_le16(nlbs[i]);
 		copy[i].slba = cpu_to_le64(slbas[i]);
-		copy[i].elbt[2] = cpu_to_le64(eilbrts[i]);
 		copy[i].elbatm = cpu_to_le16(elbatms[i]);
 		copy[i].elbat = cpu_to_le16(elbats[i]);
+		for (j = 0; j < 8; j++)
+			copy[i].elbt[9 - j] = (eilbrts[i] >> (8 * j)) & 0xff;
+		copy[i].elbt[1] = 0;
+		copy[i].elbt[0] = 0;
 	}  
 }
 
@@ -559,11 +562,12 @@ static const char * const libnvme_status[] = {
 	[ENVME_CONNECT_INVAL_TR] = "invalid transport type",
 	[ENVME_CONNECT_LOOKUP_SUBSYS_NAME] = "failed to lookup subsystem name",
 	[ENVME_CONNECT_LOOKUP_SUBSYS] = "failed to lookup subsystem",
-	[ENVME_CONNECT_ALREADY] = "already connnected",
+	[ENVME_CONNECT_ALREADY] = "already connected",
 	[ENVME_CONNECT_INVAL] = "invalid arguments/configuration",
 	[ENVME_CONNECT_ADDRINUSE] = "hostnqn already in use",
 	[ENVME_CONNECT_NODEV] = "invalid interface",
 	[ENVME_CONNECT_OPNOTSUPP] ="not supported",
+	[ENVME_CONNECT_CONNREFUSED] = "connection refused",
 };
 
 const char *nvme_errno_to_string(int status)
@@ -573,6 +577,7 @@ const char *nvme_errno_to_string(int status)
 	return s;
 }
 
+#ifdef HAVE_LIBNSS
 char *hostname2traddr(struct nvme_root *r, const char *traddr)
 {
 	struct addrinfo *host_info, hints = {.ai_family = AF_UNSPEC};
@@ -616,6 +621,18 @@ free_addrinfo:
 	freeaddrinfo(host_info);
 	return ret_traddr;
 }
+
+#else  /* !HAVE_LIBNSS */
+
+char *hostname2traddr(struct nvme_root *r, const char *traddr)
+{
+	nvme_msg(NULL, LOG_ERR, "No support for hostname IP address resolution; " \
+		"recompile with libnss support.\n");
+
+	errno = -ENOTSUP;
+	return NULL;
+}
+#endif /* HAVE_LIBNSS */
 
 char *startswith(const char *s, const char *prefix)
 {
@@ -871,13 +888,11 @@ int nvme_uuid_random(unsigned char uuid[NVME_UUID_LEN])
 	if (f < 0)
 		return -errno;
 	n = read(f, uuid, NVME_UUID_LEN);
-	if (n < 0) {
-		close(f);
+	close(f);
+	if (n < 0)
 		return -errno;
-	} else if (n != NVME_UUID_LEN) {
-		close(f);
+	else if (n != NVME_UUID_LEN)
 		return -EIO;
-	}
 
 	/*
 	 * See https://www.rfc-editor.org/rfc/rfc4122#section-4.4

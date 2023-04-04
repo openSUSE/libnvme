@@ -98,17 +98,6 @@ int nvme_get_new_host_telemetry(int fd,  struct nvme_telemetry_log **log,
 		enum nvme_telemetry_da da, size_t *size);
 
 /**
- * nvme_get_log_page() - Get log page data
- * @fd:		File descriptor of nvme device
- * @xfer_len:	Max log transfer size per request to split the total.
- * @args:	&struct nvme_get_log_args argument structure
- *
- * Return: The nvme command status if a response was received (see
- * &enum nvme_status_field) or -1 with errno set otherwise.
- */
-int nvme_get_log_page(int fd, __u32 xfer_len, struct nvme_get_log_args *args);
-
-/**
  * nvme_get_ana_log_len() - Retrieve size of the current ANA log
  * @fd:		File descriptor of nvme device
  * @analen:	Pointer to where the length will be set on success
@@ -204,5 +193,73 @@ enum nvme_hmac_alg {
 int nvme_gen_dhchap_key(char *hostnqn, enum nvme_hmac_alg hmac,
 			unsigned int key_len, unsigned char *secret,
 			unsigned char *key);
+
+/**
+ * nvme_lookup_keyring() - Lookup keyring serial number
+ * @keyring:    Keyring name
+ *
+ * Looks up the serial number of the keyring @keyring.
+ *
+ * Return: The key serial number of the keyring
+ * or 0 with errno set otherwise.
+ */
+long nvme_lookup_keyring(const char *keyring);
+
+/**
+ * nvme_describe_key_serial() - Return key description
+ * @key_id:    Key serial number
+ *
+ * Fetches the description of the key or keyring identified
+ * by the serial number @key_id.
+ *
+ * Return: The description of @key_id or NULL on failure.
+ * The returned string needs to be freed by the caller.
+ */
+char *nvme_describe_key_serial(long key_id);
+
+/**
+ * nvme_lookup_key() - Lookup key serial number
+ * @type:        Key type
+ * @identity:    Key description
+ *
+ * Looks up the serial number of the key @identity
+ * with type %type in the current session keyring.
+ *
+ * Return: The key serial number of the key
+ * or 0 with errno set otherwise.
+ */
+long nvme_lookup_key(const char *type, const char *identity);
+
+/**
+ * nvme_set_keyring() - Link keyring for lookup
+ * @keyring_id:    Keyring id
+ *
+ * Links @keyring_id into the session keyring such that
+ * its keys are available for further key lookups.
+ *
+ * Return: 0 on success, a negative number on error
+ * with errno set.
+ */
+int nvme_set_keyring(long keyring_id);
+
+/**
+ * nvme_insert_tls_key() - Derive and insert TLS key
+ * @keyring:    Keyring to use
+ * @key_type:	Type of the resulting key
+ * @hostnqn:	Host NVMe Qualified Name
+ * @subsysnqn:	Subsystem NVMe Qualified Name
+ * @hmac:	HMAC algorithm
+ * @configured_key:	Configured key data to derive the key from
+ * @key_len:	Length of @configured_key
+ *
+ * Derives a 'retained' TLS key as specified in NVMe TCP 1.0a and
+ * stores it as type @key_type in the keyring specified by @keyring.
+ *
+ * Return: The key serial number if the key could be inserted into
+ * the keyring or 0 with errno otherwise.
+ */
+long nvme_insert_tls_key(const char *keyring, const char *key_type,
+			 const char *hostnqn, const char *subsysnqn, int hmac,
+			 unsigned char *configured_key, int key_len);
 
 #endif /* _LIBNVME_LINUX_H */

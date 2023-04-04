@@ -133,6 +133,44 @@ DH-HMAC-CHAP host key or NULL if not set
   DH-HMAC-CHAP Key to set or NULL to clear existing key
 
 
+.. c:function:: void nvme_host_set_pdc_enabled (nvme_host_t h, bool enabled)
+
+   Set Persistent Discovery Controller flag
+
+**Parameters**
+
+``nvme_host_t h``
+  Host for which the falg should be set
+
+``bool enabled``
+  The bool to set the enabled flag
+
+**Description**
+
+When nvme_host_set_pdc_enabled() is not used to set the PDC flag,
+nvme_host_is_pdc_enabled() will return the default value which was
+passed into the function and not the undefined flag value.
+
+
+.. c:function:: bool nvme_host_is_pdc_enabled (nvme_host_t h, bool fallback)
+
+   Is Persistenct Discovery Controller enabled
+
+**Parameters**
+
+``nvme_host_t h``
+  Host which to check if PDC is enabled
+
+``bool fallback``
+  The fallback default value of the flag when
+  **nvme_host_set_pdc_enabled** has not be used
+  to set the flag.
+
+**Return**
+
+true if PDC is enabled for **h**, else false
+
+
 .. c:function:: nvme_host_t nvme_default_host (nvme_root_t r)
 
    Initializes the default host
@@ -1642,6 +1680,38 @@ Returns the value of the 'discovery_ctrl' flag which specifies whether
 **Return**
 
 Value of the 'discover_ctrl' flag
+
+
+.. c:function:: void nvme_ctrl_set_unique_discovery_ctrl (nvme_ctrl_t c, bool unique)
+
+   Set the 'unique_discovery_ctrl' flag
+
+**Parameters**
+
+``nvme_ctrl_t c``
+  Controller to be modified
+
+``bool unique``
+  value of the unique_disc_ctrl flag
+
+**Description**
+
+Sets the 'unique_discovery_ctrl' flag in **c** to specify wheter
+**c** is a unique discovery controller
+
+
+.. c:function:: bool nvme_ctrl_is_unique_discovery_ctrl (nvme_ctrl_t c)
+
+   Check the 'unique_discovery_ctrl' flag
+
+**Parameters**
+
+``nvme_ctrl_t c``
+  Controller to be checked
+
+**Return**
+
+Value of the 'unique_discovery_ctrl' flag
 
 
 .. c:function:: int nvme_ctrl_identify (nvme_ctrl_t c, struct nvme_id_ctrl *id)

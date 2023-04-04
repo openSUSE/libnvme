@@ -1538,6 +1538,27 @@ The nvme command status if a response was received (see
 :c:type:`enum nvme_status_field <nvme_status_field>`) or -1 with errno set otherwise.
 
 
+.. c:function:: int nvme_get_log_page (int fd, __u32 xfer_len, struct nvme_get_log_args *args)
+
+   Get log page data
+
+**Parameters**
+
+``int fd``
+  File descriptor of nvme device
+
+``__u32 xfer_len``
+  Max log transfer size per request to split the total.
+
+``struct nvme_get_log_args *args``
+  :c:type:`struct nvme_get_log_args <nvme_get_log_args>` argument structure
+
+**Return**
+
+The nvme command status if a response was received (see
+:c:type:`enum nvme_status_field <nvme_status_field>`) or -1 with errno set otherwise.
+
+
 .. c:function:: int nvme_get_log_supported_log_pages (int fd, bool rae, struct nvme_supported_log_pages *log)
 
    Retrieve nmve supported log pages
@@ -1881,6 +1902,97 @@ The nvme command status if a response was received (see
 
 The nvme command status if a response was received (see
 :c:type:`enum nvme_status_field <nvme_status_field>`) or -1 with errno set otherwise.
+
+
+.. c:function:: int nvme_get_log_fdp_configurations (int fd, __u16 egid, __u32 offset, __u32 len, void *log)
+
+   Get list of Flexible Data Placement configurations
+
+**Parameters**
+
+``int fd``
+  File descriptor of nvme device
+
+``__u16 egid``
+  Endurance group identifier
+
+``__u32 offset``
+  Offset into log page
+
+``__u32 len``
+  Length (in bytes) of provided user buffer to hold the log data
+
+``void *log``
+  Log page data buffer
+
+
+.. c:function:: int nvme_get_log_reclaim_unit_handle_usage (int fd, __u16 egid, __u32 offset, __u32 len, void *log)
+
+   Get reclaim unit handle usage
+
+**Parameters**
+
+``int fd``
+  File descriptor of nvme device
+
+``__u16 egid``
+  Endurance group identifier
+
+``__u32 offset``
+  Offset into log page
+
+``__u32 len``
+  Length (in bytes) of provided user buffer to hold the log data
+
+``void *log``
+  Log page data buffer
+
+
+.. c:function:: int nvme_get_log_fdp_stats (int fd, __u16 egid, __u32 offset, __u32 len, void *log)
+
+   Get Flexible Data Placement statistics
+
+**Parameters**
+
+``int fd``
+  File descriptor of nvme device
+
+``__u16 egid``
+  Endurance group identifier
+
+``__u32 offset``
+  Offset into log page
+
+``__u32 len``
+  Length (in bytes) of provided user buffer to hold the log data
+
+``void *log``
+  Log page data buffer
+
+
+.. c:function:: int nvme_get_log_fdp_events (int fd, __u16 egid, bool host_events, __u32 offset, __u32 len, void *log)
+
+   Get Flexible Data Placement events
+
+**Parameters**
+
+``int fd``
+  File descriptor of nvme device
+
+``__u16 egid``
+  Endurance group identifier
+
+``bool host_events``
+  Whether to report host or controller events
+
+``__u32 offset``
+  Offset into log page
+
+``__u32 len``
+  Length (in bytes) of provided user buffer to hold the log data
+
+``void *log``
+  Log page data buffer
 
 
 .. c:function:: int nvme_get_log_ana (int fd, enum nvme_log_ana_lsp lsp, bool rae, __u64 offset, __u32 len, void *log)
@@ -2911,7 +3023,7 @@ The nvme command status if a response was received (see
 
 .. c:function:: int nvme_set_features_host_id (int fd, bool exhid, bool save, __u8 *hostid)
 
-   Set enable extended host identifers feature
+   Set enable extended host identifiers feature
 
 **Parameters**
 
@@ -4307,7 +4419,7 @@ controller and may include testing of the media associated with namespaces.
 The controller may return a response to this command immediately while
 running the self-test in the background.
 
-Set the 'nsid' field to 0 to not include namepsaces in the test. Set to
+Set the 'nsid' field to 0 to not include namespaces in the test. Set to
 0xffffffff to test all namespaces. All other values tests a specific
 namespace, if present.
 
@@ -4601,6 +4713,84 @@ The nvme command status if a response was received (see
 Returns a Reservation Status data structure to memory that describes the
 registration and reservation status of a namespace. See the definition for
 the returned structure, :c:type:`struct nvme_reservation_status <nvme_reservation_status>`, for more details.
+
+**Return**
+
+The nvme command status if a response was received (see
+:c:type:`enum nvme_status_field <nvme_status_field>`) or -1 with errno set otherwise.
+
+
+.. c:function:: int nvme_io_mgmt_recv (struct nvme_io_mgmt_recv_args *args)
+
+   I/O Management Receive command
+
+**Parameters**
+
+``struct nvme_io_mgmt_recv_args *args``
+  :c:type:`struct nvme_io_mgmt_recv_args <nvme_io_mgmt_recv_args>` argument structure
+
+**Return**
+
+The nvme command status if a response was received (see
+:c:type:`enum nvme_status_field <nvme_status_field>`) or -1 with errno set otherwise.
+
+
+.. c:function:: int nvme_fdp_reclaim_unit_handle_status (int fd, __u32 nsid, __u32 data_len, void *data)
+
+   Get reclaim unit handle status
+
+**Parameters**
+
+``int fd``
+  File descriptor of nvme device
+
+``__u32 nsid``
+  Namespace identifier
+
+``__u32 data_len``
+  Length of response buffer
+
+``void *data``
+  Response buffer
+
+**Return**
+
+The nvme command status if a response was received (see
+:c:type:`enum nvme_status_field <nvme_status_field>`) or -1 with errno set otherwise.
+
+
+.. c:function:: int nvme_io_mgmt_send (struct nvme_io_mgmt_send_args *args)
+
+   I/O Management Send command
+
+**Parameters**
+
+``struct nvme_io_mgmt_send_args *args``
+  :c:type:`struct nvme_io_mgmt_send_args <nvme_io_mgmt_send_args>` argument structure
+
+**Return**
+
+The nvme command status if a response was received (see
+:c:type:`enum nvme_status_field <nvme_status_field>`) or -1 with errno set otherwise.
+
+
+.. c:function:: int nvme_fdp_reclaim_unit_handle_update (int fd, __u32 nsid, unsigned int npids, __u16 *pids)
+
+   Update a list of reclaim unit handles
+
+**Parameters**
+
+``int fd``
+  File descriptor of nvme device
+
+``__u32 nsid``
+  Namespace identifier
+
+``unsigned int npids``
+  Number of placement identifiers
+
+``__u16 *pids``
+  List of placement identifiers
 
 **Return**
 

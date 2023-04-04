@@ -24,17 +24,20 @@ mi_sources = [
     'nvme/mi-mctp.c',
 ]
 
-if conf.get('CONFIG_JSONC')
+if json_c_dep.found()
     sources += 'nvme/json.c'
+else
+    sources += 'nvme/no-json.c'
 endif
 
 deps = [
     json_c_dep,
     openssl_dep,
+    keyutils_dep,
 ]
 
 mi_deps = [
-    libsystemd_dep,
+    libdbus_dep,
 ]
 
 source_dir = meson.current_source_dir()

@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <time.h>
 
 #include <ccan/array_size/array_size.h>
 #include <ccan/endian/endian.h>
@@ -20,6 +21,20 @@
 
 static const int default_timeout = 1000; /* milliseconds; endpoints may
 					    override */
+
+static bool nvme_mi_probe_enabled_default(void)
+{
+	char *val;
+
+	val = getenv("LIBNVME_MI_PROBE_ENABLED");
+	if (!val)
+		return true;
+
+	return strcmp(val, "0") &&
+		strcasecmp(val, "false") &&
+		strncasecmp(val, "disable", 7);
+
+}
 
 /* MI-equivalent of nvme_create_root, but avoids clashing symbol names
  * when linking against both libnvme and libnvme-mi.
@@ -33,6 +48,7 @@ nvme_root_t nvme_mi_create_root(FILE *fp, int log_level)
 	}
 	r->log_level = log_level;
 	r->fp = stderr;
+	r->mi_probe_enabled = nvme_mi_probe_enabled_default();
 	if (fp)
 		r->fp = fp;
 	list_head_init(&r->hosts);
@@ -48,6 +64,180 @@ void nvme_mi_free_root(nvme_root_t root)
 		nvme_mi_close(ep);
 
 	free(root);
+}
+
+void nvme_mi_set_probe_enabled(nvme_root_t root, bool enabled)
+{
+	root->mi_probe_enabled = enabled;
+}
+
+static void nvme_mi_record_resp_time(struct nvme_mi_ep *ep)
+{
+	int rc;
+
+	rc = clock_gettime(CLOCK_MONOTONIC, &ep->last_resp_time);
+	ep->last_resp_time_valid = !rc;
+}
+
+static bool nvme_mi_compare_vid_mn(struct nvme_mi_ep *ep,
+				   struct nvme_id_ctrl *id,
+				   __u16 vid, const char *mn)
+
+{
+	int len;
+
+	len = strlen(mn);
+	if (len >= sizeof(id->mn)) {
+		nvme_msg(ep->root, LOG_ERR,
+			 "Internal error: invalid model number for %s\n",
+			 __func__);
+		return false;
+	}
+
+	return le16_to_cpu(id->vid) == vid && !strncmp(id->mn, mn, len);
+}
+
+static void __nvme_mi_format_mn(struct nvme_id_ctrl *id,
+				char *mn, size_t mn_len)
+{
+	const size_t id_mn_size = sizeof(id->mn);
+	int i;
+
+	/* A BUILD_ASSERT() would be nice here, but we're not const enough for
+	 * that
+	 */
+	if (mn_len <= id_mn_size)
+		abort();
+
+	memcpy(mn, id->mn, id_mn_size);
+	mn[id_mn_size] = '\0';
+
+	for (i = id_mn_size - 1; i >= 0; i--) {
+		if (mn[i] != '\0' && mn[i] != ' ')
+			break;
+		mn[i] = '\0';
+	}
+}
+
+#define nvme_mi_format_mn(id, m) __nvme_mi_format_mn(id, m, sizeof(m))
+
+void nvme_mi_ep_probe(struct nvme_mi_ep *ep)
+{
+	struct nvme_identify_args id_args = { 0 };
+	struct nvme_id_ctrl id = { 0 };
+	struct nvme_mi_ctrl *ctrl;
+	int rc;
+
+	if (!ep->root->mi_probe_enabled)
+		return;
+
+	/* start with no quirks, detect as we go */
+	ep->quirks = 0;
+
+	ctrl = nvme_mi_init_ctrl(ep, 0);
+	if (!ctrl)
+		return;
+
+	/* Do enough of an identify (assuming controller 0) to retrieve
+	 * device and firmware identification information. This gives us the
+	 * following fields in id:
+	 *
+	 *  - vid (PCI vendor ID)
+	 *  - ssvid (PCI subsystem vendor ID)
+	 *  - sn (Serial number)
+	 *  - mn (Model number)
+	 *  - fr (Firmware revision)
+	 *
+	 * all other fields - rab and onwards - will be zero!
+	 */
+	id_args.args_size = sizeof(id_args);
+	id_args.data = &id;
+	id_args.cns = NVME_IDENTIFY_CNS_CTRL;
+	id_args.nsid = NVME_NSID_NONE;
+	id_args.cntid = 0;
+	id_args.csi = NVME_CSI_NVM;
+
+	rc = nvme_mi_admin_identify_partial(ctrl, &id_args, 0,
+				    offsetof(struct nvme_id_ctrl, rab));
+	if (rc) {
+		nvme_msg(ep->root, LOG_WARNING,
+			 "Identify Controller failed, no quirks applied\n");
+		goto out_close;
+	}
+
+	/* Samsung MZUL2512: cannot receive commands sent within ~1ms of
+	 * the previous response. Set an inter-command delay of 1.2ms for
+	 * a little extra tolerance.
+	 */
+	if (nvme_mi_compare_vid_mn(ep, &id, 0x144d, "MZUL2512HCJQ")) {
+		ep->quirks |= NVME_QUIRK_MIN_INTER_COMMAND_TIME;
+		ep->inter_command_us = 1200;
+	}
+
+	/* If we're quirking for the inter-command time, record the last
+	 * command time now, so we don't conflict with the just-sent identify.
+	 */
+	if (ep->quirks & NVME_QUIRK_MIN_INTER_COMMAND_TIME)
+		nvme_mi_record_resp_time(ep);
+
+	if (ep->quirks) {
+		char tmp[sizeof(id.mn) + 1];
+
+		nvme_mi_format_mn(&id, tmp);
+		nvme_msg(ep->root, LOG_DEBUG,
+			 "device %02x:%s: applying quirks 0x%08lx\n",
+			 id.vid, tmp, ep->quirks);
+	}
+
+out_close:
+	nvme_mi_close_ctrl(ctrl);
+}
+
+static const int nsec_per_sec = 1000 * 1000 * 1000;
+/* timercmp and timersub, but for struct timespec */
+#define timespec_cmp(a, b, CMP)						\
+	(((a)->tv_sec == (b)->tv_sec)					\
+		? ((a)->tv_nsec CMP (b)->tv_nsec)			\
+		: ((a)->tv_sec CMP (b)->tv_sec))
+
+#define timespec_sub(a, b, result)					\
+	do {								\
+		(result)->tv_sec = (a)->tv_sec - (b)->tv_sec;		\
+		(result)->tv_nsec = (a)->tv_nsec - (b)->tv_nsec;	\
+		if ((result)->tv_nsec < 0) {				\
+			--(result)->tv_sec;				\
+			(result)->tv_nsec += nsec_per_sec;		\
+		}							\
+	} while (0)
+
+static void nvme_mi_insert_delay(struct nvme_mi_ep *ep)
+{
+	struct timespec now, next, delay;
+	int rc;
+
+	if (!ep->last_resp_time_valid)
+		return;
+
+	/* calculate earliest next command time */
+	next.tv_nsec = ep->last_resp_time.tv_nsec + ep->inter_command_us * 1000;
+	next.tv_sec = ep->last_resp_time.tv_sec;
+	if (next.tv_nsec > nsec_per_sec) {
+		next.tv_nsec -= nsec_per_sec;
+		next.tv_sec += 1;
+	}
+
+	rc = clock_gettime(CLOCK_MONOTONIC, &now);
+	if (rc) {
+		/* not much we can do; continue immediately */
+		return;
+	}
+
+	if (timespec_cmp(&now, &next, >=))
+		return;
+
+	timespec_sub(&next, &now, &delay);
+
+	nanosleep(&delay, NULL);
 }
 
 struct nvme_mi_ep *nvme_mi_init_ep(nvme_root_t root)
@@ -91,6 +281,11 @@ void nvme_mi_ep_set_mprt_max(nvme_mi_ep_t ep, unsigned int mprt_max_ms)
 unsigned int nvme_mi_ep_get_timeout(nvme_mi_ep_t ep)
 {
 	return ep->timeout;
+}
+
+static bool nvme_mi_ep_has_quirk(nvme_mi_ep_t ep, unsigned long quirk)
+{
+	return ep->quirks & quirk;
 }
 
 struct nvme_mi_ctrl *nvme_mi_init_ctrl(nvme_mi_ep_t ep, __u16 ctrl_id)
@@ -139,9 +334,7 @@ int nvme_mi_scan_ep(nvme_mi_ep_t ep, bool force_rescan)
 		struct nvme_mi_ctrl *ctrl;
 		__u16 id;
 
-		id = le32_to_cpu(list.identifier[i]);
-		if (!id)
-			continue;
+		id = le16_to_cpu(list.identifier[i]);
 
 		ctrl = nvme_mi_init_ctrl(ep, id);
 		if (!ctrl)
@@ -223,7 +416,14 @@ int nvme_mi_submit(nvme_mi_ep_t ep, struct nvme_mi_req *req,
 	if (ep->transport->mic_enabled)
 		nvme_mi_calc_req_mic(req);
 
+	if (nvme_mi_ep_has_quirk(ep, NVME_QUIRK_MIN_INTER_COMMAND_TIME))
+		nvme_mi_insert_delay(ep);
+
 	rc = ep->transport->submit(ep, req, resp);
+
+	if (nvme_mi_ep_has_quirk(ep, NVME_QUIRK_MIN_INTER_COMMAND_TIME))
+		nvme_mi_record_resp_time(ep);
+
 	if (rc) {
 		nvme_msg(ep->root, LOG_INFO, "transport failure\n");
 		return rc;
@@ -333,7 +533,12 @@ static int nvme_mi_admin_parse_status(struct nvme_mi_resp *resp, __u32 *result)
 
 	admin_hdr = (struct nvme_mi_admin_resp_hdr *)resp->hdr;
 	nvme_result = le32_to_cpu(admin_hdr->cdw0);
-	nvme_status = le32_to_cpu(admin_hdr->cdw3) >> 16;
+
+	/* Shift down 17 here: the SC starts at bit 17, and the NVME_SC_*
+	 * definitions align to this bit (and up). The CRD, MORE and DNR
+	 * bits are defined accordingly (eg., DNR is 0x4000).
+	 */
+	nvme_status = le32_to_cpu(admin_hdr->cdw3) >> 17;
 
 	/* the result pointer, optionally stored if the caller needs it */
 	if (result)
@@ -419,6 +624,96 @@ int nvme_mi_admin_xfer(nvme_mi_ctrl_t ctrl,
 	return 0;
 }
 
+int nvme_mi_admin_admin_passthru(nvme_mi_ctrl_t ctrl, __u8 opcode, __u8 flags,
+				 __u16 rsvd, __u32 nsid, __u32 cdw2, __u32 cdw3,
+				 __u32 cdw10, __u32 cdw11, __u32 cdw12,
+				 __u32 cdw13, __u32 cdw14, __u32 cdw15,
+				 __u32 data_len, void *data, __u32 metadata_len,
+				 void *metadata, __u32 timeout_ms, __u32 *result)
+{
+	/* Input parameters flags, rsvd, metadata, metadata_len are not used */
+	struct nvme_mi_admin_resp_hdr resp_hdr;
+	struct nvme_mi_admin_req_hdr req_hdr;
+	struct nvme_mi_resp resp;
+	struct nvme_mi_req req;
+	int rc;
+	int direction = opcode & 0x3;
+	bool has_write_data = false;
+	bool has_read_data = false;
+
+	if (direction == NVME_DATA_TFR_BIDIRECTIONAL) {
+		nvme_msg(ctrl->ep->root, LOG_ERR,
+			"nvme_mi_admin_admin_passthru doesn't support bidirectional commands\n");
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (data_len > 4096) {
+		nvme_msg(ctrl->ep->root, LOG_ERR,
+			"nvme_mi_admin_admin_passthru doesn't support data_len over 4096 bytes.\n");
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (data != NULL && data_len != 0) {
+		if (direction == NVME_DATA_TFR_HOST_TO_CTRL)
+			has_write_data = true;
+		if (direction == NVME_DATA_TFR_CTRL_TO_HOST)
+			has_read_data = true;
+	}
+
+	if (timeout_ms > nvme_mi_ep_get_timeout(ctrl->ep)) {
+		/* Set timeout if user needs a bigger timeout */
+		nvme_mi_ep_set_timeout(ctrl->ep, timeout_ms);
+	}
+
+	nvme_mi_admin_init_req(&req, &req_hdr, ctrl->id, opcode);
+	req_hdr.cdw1 = cpu_to_le32(nsid);
+	req_hdr.cdw2 = cpu_to_le32(cdw2);
+	req_hdr.cdw3 = cpu_to_le32(cdw3);
+	req_hdr.cdw10 = cpu_to_le32(cdw10);
+	req_hdr.cdw11 = cpu_to_le32(cdw11);
+	req_hdr.cdw12 = cpu_to_le32(cdw12);
+	req_hdr.cdw13 = cpu_to_le32(cdw13);
+	req_hdr.cdw14 = cpu_to_le32(cdw14);
+	req_hdr.cdw15 = cpu_to_le32(cdw15);
+	req_hdr.doff = 0;
+	if (data_len != 0) {
+		req_hdr.dlen = cpu_to_le32(data_len);
+		/* Bit 0 set to 1 means DLEN contains a value */
+		req_hdr.flags = 0x1;
+	}
+
+	if (has_write_data) {
+		req.data = data;
+		req.data_len = data_len;
+	}
+
+	nvme_mi_calc_req_mic(&req);
+
+	nvme_mi_admin_init_resp(&resp, &resp_hdr);
+
+	if (has_read_data) {
+		resp.data = data;
+		resp.data_len = data_len;
+	}
+
+	rc = nvme_mi_submit(ctrl->ep, &req, &resp);
+	if (rc)
+		return rc;
+
+	rc = nvme_mi_admin_parse_status(&resp, result);
+	if (rc)
+		return rc;
+
+	if (has_read_data && (resp.data_len != data_len)) {
+		errno = EPROTO;
+		return -1;
+	}
+
+	return 0;
+}
+
 int nvme_mi_admin_identify_partial(nvme_mi_ctrl_t ctrl,
 				   struct nvme_identify_args *args,
 				   off_t offset, size_t size)
@@ -477,11 +772,19 @@ int nvme_mi_admin_identify_partial(nvme_mi_ctrl_t ctrl,
 }
 
 /* retrieves a MCTP-messsage-sized chunk of log page data. offset and len are
- * specified within the args->data area */
+ * specified within the args->data area. The `offset` parameter is a relative
+ * offset to the args->lpo !
+ *
+ * What's more, we change the LPO of original command to chunk the request
+ * message into proper size which is allowed by MI interface. One reason is that
+ * this option seems to be supported better by devices.  For more information
+ * about this option, please check https://github.com/linux-nvme/libnvme/pull/539
+ * */
 static int __nvme_mi_admin_get_log(nvme_mi_ctrl_t ctrl,
 				   const struct nvme_get_log_args *args,
 				   off_t offset, size_t *lenp, bool final)
 {
+	__u64 log_page_offset = args->lpo + offset;
 	struct nvme_mi_admin_resp_hdr resp_hdr;
 	struct nvme_mi_admin_req_hdr req_hdr;
 	struct nvme_mi_resp resp;
@@ -513,17 +816,13 @@ static int __nvme_mi_admin_get_log(nvme_mi_ctrl_t ctrl,
 				    (args->lid & 0xff));
 	req_hdr.cdw11 = cpu_to_le32(args->lsi << 16 |
 				    ndw >> 16);
-	req_hdr.cdw12 = cpu_to_le32(args->lpo & 0xffffffff);
-	req_hdr.cdw13 = cpu_to_le32(args->lpo >> 32);
+	req_hdr.cdw12 = cpu_to_le32(log_page_offset & 0xffffffff);
+	req_hdr.cdw13 = cpu_to_le32(log_page_offset >> 32);
 	req_hdr.cdw14 = cpu_to_le32(args->csi << 24 |
 				    (args->ot ? 1 : 0) << 23 |
 				    args->uuidx);
 	req_hdr.flags = 0x1;
 	req_hdr.dlen = cpu_to_le32(len & 0xffffffff);
-	if (offset) {
-		req_hdr.flags |= 0x2;
-		req_hdr.doff = cpu_to_le32(offset);
-	}
 
 	nvme_mi_calc_req_mic(&req);
 
@@ -542,9 +841,10 @@ static int __nvme_mi_admin_get_log(nvme_mi_ctrl_t ctrl,
 	return rc;
 }
 
-int nvme_mi_admin_get_log(nvme_mi_ctrl_t ctrl, struct nvme_get_log_args *args)
+int nvme_mi_admin_get_log_page(nvme_mi_ctrl_t ctrl, __u32 xfer_size,
+			       struct nvme_get_log_args *args)
 {
-	const size_t xfer_size = 4096;
+	const size_t max_xfer_size = xfer_size;
 	off_t xfer_offset;
 	int rc = 0;
 
@@ -553,26 +853,32 @@ int nvme_mi_admin_get_log(nvme_mi_ctrl_t ctrl, struct nvme_get_log_args *args)
 		return -1;
 	}
 
+	if (args->ot && (args->len > max_xfer_size)) {
+		errno = EINVAL;
+		return -1;
+	}
+
 	for (xfer_offset = 0; xfer_offset < args->len;) {
-		size_t tmp, cur_xfer_size = xfer_size;
+		size_t xfered_size, cur_xfer_size = max_xfer_size;
 		bool final;
 
 		if (xfer_offset + cur_xfer_size > args->len)
 			cur_xfer_size = args->len - xfer_offset;
 
-		tmp = cur_xfer_size;
+		xfered_size = cur_xfer_size;
 
 		final = xfer_offset + cur_xfer_size >= args->len;
 
+		/* xfered_size is used as both input and output parameter */
 		rc = __nvme_mi_admin_get_log(ctrl, args, xfer_offset,
-					     &tmp, final);
+					     &xfered_size, final);
 		if (rc)
 			break;
 
-		xfer_offset += tmp;
+		xfer_offset += xfered_size;
 		/* if we returned less data than expected, consider that
 		 * the end of the log page */
-		if (tmp != cur_xfer_size)
+		if (xfered_size != cur_xfer_size)
 			break;
 	}
 
@@ -580,6 +886,11 @@ int nvme_mi_admin_get_log(nvme_mi_ctrl_t ctrl, struct nvme_get_log_args *args)
 		args->len = xfer_offset;
 
 	return rc;
+}
+
+int nvme_mi_admin_get_log(nvme_mi_ctrl_t ctrl, struct nvme_get_log_args *args)
+{
+	return nvme_mi_admin_get_log_page(ctrl, 4096, args);
 }
 
 int nvme_mi_admin_security_send(nvme_mi_ctrl_t ctrl,
@@ -606,8 +917,8 @@ int nvme_mi_admin_security_send(nvme_mi_ctrl_t ctrl,
 			       nvme_admin_security_send);
 
 	req_hdr.cdw10 = cpu_to_le32(args->secp << 24 |
-				    args->spsp0 << 16 |
-				    args->spsp1 << 8 |
+				    args->spsp1 << 16 |
+				    args->spsp0 << 8 |
 				    args->nssf);
 
 	req_hdr.cdw11 = cpu_to_le32(args->data_len & 0xffffffff);
@@ -652,8 +963,8 @@ int nvme_mi_admin_security_recv(nvme_mi_ctrl_t ctrl,
 			       nvme_admin_security_recv);
 
 	req_hdr.cdw10 = cpu_to_le32(args->secp << 24 |
-				    args->spsp0 << 16 |
-				    args->spsp1 << 8 |
+				    args->spsp1 << 16 |
+				    args->spsp0 << 8 |
 				    args->nssf);
 
 	req_hdr.cdw11 = cpu_to_le32(args->data_len & 0xffffffff);
@@ -985,7 +1296,7 @@ static int nvme_mi_read_data(nvme_mi_ep_t ep, __u32 cdw0,
 	req_hdr.hdr.nmp = (NVME_MI_ROR_REQ << 7) |
 		(NVME_MI_MT_MI << 3); /* we always use command slot 0 */
 	req_hdr.opcode = nvme_mi_mi_opcode_mi_data_read;
-	req_hdr.cdw0 = cdw0;
+	req_hdr.cdw0 = cpu_to_le32(cdw0);
 
 	memset(&req, 0, sizeof(req));
 	req.hdr = &req_hdr.hdr;
@@ -1222,7 +1533,7 @@ void nvme_mi_close(nvme_mi_ep_t ep)
 	nvme_mi_for_each_ctrl_safe(ep, ctrl, tmp)
 		nvme_mi_close_ctrl(ctrl);
 
-	if (ep->transport->close)
+	if (ep->transport && ep->transport->close)
 		ep->transport->close(ep);
 	list_del(&ep->root_entry);
 	free(ep);

@@ -7,14 +7,15 @@
 #
 project(
     'libnvme', ['c'],
-    meson_version: '>= 0.48.0',
-    version: '1.2',
+    meson_version: '>= 0.50.0',
+    version: '1.4',
     license: 'LGPL-2.1-or-later',
     default_options: [
         'c_std=gnu99',
         'warning_level=1',
-        'buildtype=release',
-        'prefix=/usr',
+        'buildtype=debug',
+        'prefix=/usr/local',
+        'sysconfdir=etc',
     ]
 )
 
@@ -33,8 +34,6 @@ mandir     = join_paths(prefixdir, get_option('mandir'))
 bindir     = join_paths(prefixdir, get_option('bindir'))
 sysconfdir = join_paths(prefixdir, get_option('sysconfdir'))
 
-pkgconfiglibdir = get_option('pkgconfiglibdir') == '' ? join_paths(libdir, 'pkgconfig') : get_option('pkgconfiglibdir')
-
 ################################################################################
 conf = configuration_data()
 
@@ -52,48 +51,81 @@ conf.set('PROJECT_VERSION', '"@0@"'.format(meson.project_version()))
 
 conf.set('SYSCONFDIR', '"@0@"'.format(sysconfdir))
 
-# Check for json-c availability
-json_c_dep = dependency('json-c',
-			version: '>=0.13',
-			required: true,
-			fallback : ['json-c', 'json_c_dep'])
+if get_option('json-c').disabled()
+    json_c_dep = dependency('', required: false)
+else
+    json_c_dep = dependency('json-c',
+                            version: '>=0.13',
+                            required: true,
+                            fallback : ['json-c', 'json_c_dep'])
+endif
 conf.set('CONFIG_JSONC', json_c_dep.found(), description: 'Is json-c required?')
 
-# Check for OpenSSL availability
-openssl_dep = dependency('openssl',
-                         version: '>=1.1.0',
-                         required: get_option('openssl'),
-                         fallback : ['openssl', 'libssl_dep'])
-if openssl_dep.found()
-  conf.set('CONFIG_OPENSSL', true,
-           description: 'Is OpenSSL/LibreSSL available?')
+if get_option('openssl').disabled()
+  openssl_dep = dependency('', required: false)
+else
+  openssl_dep = dependency('openssl',
+                           version: '>=1.1.0',
+                           required: get_option('openssl'),
+                           fallback : ['openssl', 'libssl_dep'])
 
-  if openssl_dep.version().version_compare('<2.0.0')
-    api_version = 1
-  endif
-
-  if openssl_dep.version().version_compare('>=3.0.0')
-    api_version = 3
-
-    # Test for LibreSSL v3.x with incomplete OpenSSL v3 APIs
-    is_libressl = cc.has_header_symbol('openssl/opensslv.h',
-                                       'LIBRESSL_VERSION_NUMBER',
-                                       dependencies: openssl_dep)
-    has_header = cc.has_header('openssl/core_names.h',
-                               dependencies: openssl_dep)
-    if is_libressl and not has_header
+  if openssl_dep.found()
+    if openssl_dep.version().version_compare('<2.0.0')
       api_version = 1
     endif
 
-  endif
+    if openssl_dep.version().version_compare('>=3.0.0')
+      api_version = 3
+    endif
 
-  conf.set('CONFIG_OPENSSL_@0@'.format(api_version), true,
-           description: 'OpenSSL/LibreSSL API version @0@'.format(api_version))
+    # Test for LibreSSL v3.x with incomplete OpenSSL v3 APIs
+    if openssl_dep.type_name() != 'internal'
+      is_libressl = cc.has_header_symbol('openssl/opensslv.h',
+                                         'LIBRESSL_VERSION_NUMBER',
+                                         dependencies: openssl_dep)
+      has_header = cc.has_header('openssl/core_names.h',
+                                 dependencies: openssl_dep)
+      if is_libressl and not has_header
+        api_version = 1
+      endif
+    endif
+
+    conf.set('CONFIG_OPENSSL_@0@'.format(api_version), true,
+             description: 'OpenSSL/LibreSSL API version @0@'.format(api_version))
+  endif
 endif
 
-# Check for libsystemd availability. Optional, only required for MCTP dbus scan
-libsystemd_dep = dependency('libsystemd', version: '>219', required: false)
-conf.set('CONFIG_LIBSYSTEMD', libsystemd_dep.found(), description: 'Is libsystemd(>219) available?')
+conf.set('CONFIG_OPENSSL', openssl_dep.found(),
+         description: 'Is OpenSSL/LibreSSL available?')
+
+if get_option('keyutils').disabled()
+    keyutils_dep = dependency('', required: false)
+else
+    keyutils_dep = dependency('libkeyutils',
+                              required : get_option('keyutils'))
+endif
+conf.set('CONFIG_KEYUTILS', keyutils_dep.found(),
+         description: 'Is libkeyutils available?')
+
+if get_option('libdbus').disabled()
+    libdbus_dep = dependency('', required: false)
+else
+    # Check for libdus availability. Optional, only required for MCTP dbus scan
+    libdbus_dep = dependency(
+        'dbus-1',
+        required: true,
+        fallback: ['dbus', 'libdbus_dep'],
+        default_options: [
+            'default_library=static',
+            'embedded_tests=false',
+            'message_bus=false',
+            'modular_tests=disabled',
+            'tools=false',
+        ],
+    )
+endif
+
+conf.set('CONFIG_DBUS', libdbus_dep.found(), description: 'Enable dbus support?')
 
 # local (cross-compilable) implementations of ccan configure steps
 conf.set10(
@@ -182,24 +214,23 @@ conf.set10(
     description: 'Is linux/mctp.h include-able?'
 )
 
-if meson.version().version_compare('>= 0.48')
-  has_fallthrough = cc.has_function_attribute('fallthrough')
-else
-  has_fallthrough = cc.compiles(
-    '''int main(int argc, char **argv) {
-           switch(argc) {
-               case 0:
-                   __attribute__((__fallthrough__));
-               case 1:
-                   return 1;
-           }
-           return 0;
-       }
-    ''',
-    name: 'has fallthrough')
-endif
+conf.set(
+    'HAVE_LIBNSS',
+    cc.links(
+      '''#include <sys/types.h>
+         #include <sys/socket.h>
+         #include <netdb.h>
+         int main(int argc, char **argv) {
+             struct addrinfo hints, *result;
+             return getaddrinfo(argv[1], argv[2], &hints, &result);
+      }
+      ''',
+      name: 'libnss',
+    ),
+    description: 'Is network address and service translation available'
+)
 
-if has_fallthrough
+if cc.has_function_attribute('fallthrough')
   conf.set('fallthrough', '__attribute__((__fallthrough__))')
 else
   conf.set('fallthrough', 'do {} while (0) /* fallthrough */')
@@ -235,3 +266,18 @@ subdir('libnvme')
 subdir('test')
 subdir('examples')
 subdir('doc')
+
+################################################################################
+if meson.version().version_compare('>=0.53.0')
+    summary_dict = {
+        'prefixdir':         prefixdir,
+        'sysconfdir':        sysconfdir,
+        'bindir':            bindir,
+        'includedir':        includedir,
+        'datadir':           datadir,
+        'mandir':            mandir,
+        'libdir':            libdir,
+        'build location':    meson.current_build_dir(),
+    }
+    summary(summary_dict)
+endif

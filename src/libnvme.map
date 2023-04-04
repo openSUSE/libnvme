@@ -1,5 +1,26 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
+LIBNVME_1_4 {
+	global:
+		nvme_lookup_keyring;
+		nvme_describe_key_serial;
+		nvme_lookup_key;
+		nvme_set_keyring;
+		nvme_insert_tls_key;
+};
+
+LIBNVME_1_3 {
+	global:
+		nvme_ctrl_is_unique_discovery_ctrl;
+		nvme_ctrl_set_unique_discovery_ctrl;
+		nvme_fdp_reclaim_unit_handle_status;
+		nvme_fdp_reclaim_unit_handle_update;
+		nvme_io_mgmt_recv;
+		nvme_io_mgmt_send;
+		nvme_host_is_pdc_enabled;
+		nvme_host_set_pdc_enabled;
+};
+
 LIBNVME_1_2 {
 	global:
 		nvme_ctrl_get_dhchap_host_key;

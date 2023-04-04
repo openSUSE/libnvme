@@ -64,6 +64,9 @@ libnvme utility functions
 ``ENVME_CONNECT_OPNOTSUPP``
   not supported
 
+``ENVME_CONNECT_CONNREFUSED``
+  connection refused
+
 
 .. c:function:: __u8 nvme_status_to_errno (int status, bool fabrics)
 
@@ -433,7 +436,7 @@ usage: int x = round_up(13, sizeof(__u32)); // 13 -> 16
 **Parameters**
 
 ``size_t val_len``
-  Value lenght
+  Value length
 
 **Description**
 
@@ -443,7 +446,7 @@ __u32), of the buffer needed to hold the exat value of size
 
 **Return**
 
-Lenght rounded up by 4
+Length rounded up by 4
 
 
 .. c:function:: __u16 nvmf_exat_size (size_t val_len)

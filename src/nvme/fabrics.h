@@ -36,6 +36,8 @@
  * @nr_write_queues:	Number of queues to use for exclusively for writing
  * @nr_poll_queues:	Number of queues to reserve for polling completions
  * @tos:		Type of service
+ * @keyring:		Keyring to store and lookup keys
+ * @tls_key:		TLS PSK for the connection
  * @duplicate_connect:	Allow multiple connections to the same target
  * @disable_sqflow:	Disable controller sq flow control
  * @hdr_digest:		Generate/verify header digest (TCP)
@@ -54,6 +56,8 @@ struct nvme_fabrics_config {
 	int nr_write_queues;
 	int nr_poll_queues;
 	int tos;
+	int keyring;
+	int tls_key;
 
 	bool duplicate_connect;
 	bool disable_sqflow;
@@ -254,7 +258,11 @@ char *nvmf_hostnqn_generate();
 
 /**
  * nvmf_hostnqn_from_file() - Reads the host nvm qualified name from the config
- *			      default location in @SYSCONFDIR@/nvme/
+ *			      default location
+ *
+ * Retrieve the qualified name from the config file located in $SYSCONFIDR/nvme.
+ * $SYSCONFDIR is usually /etc.
+ *
  * Return: The host nqn, or NULL if unsuccessful. If found, the caller
  * is responsible to free the string.
  */
@@ -262,7 +270,11 @@ char *nvmf_hostnqn_from_file();
 
 /**
  * nvmf_hostid_from_file() - Reads the host identifier from the config default
- *			     location in @SYSCONFDIR@/nvme/.
+ *			     location
+ *
+ * Retrieve the host idenditifer from the config file located in $SYSCONFDIR/nvme/.
+ * $SYSCONFDIR is usually /etc.
+ *
  * Return: The host identifier, or NULL if unsuccessful. If found, the caller
  *	   is responsible to free the string.
  */

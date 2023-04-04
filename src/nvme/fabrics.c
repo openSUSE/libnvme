@@ -47,13 +47,19 @@ const char *nvmf_dev = "/dev/nvme-fabrics";
 
 /**
  * strchomp() - Strip trailing white space
- * @s: String to strip
- * @l: Maximum length of string
+ * @str: String to strip
+ * @max: Maximum length of string
  */
-static void strchomp(char *s, int l)
+static void strchomp(char *str, int max)
 {
-	while (l && (s[l] == '\0' || s[l] == ' '))
-		s[l--] = '\0';
+	int i;
+
+	for (i = max - 1; i >= 0; i--) {
+		if (str[i] != '\0' && str[i] != ' ')
+			return;
+		else
+			str[i] = '\0';
+	}
 }
 
 const char *arg_str(const char * const *strings,
@@ -104,8 +110,15 @@ static const char * const treqs[] = {
 	[NVMF_TREQ_NOT_SPECIFIED]	= "not specified",
 	[NVMF_TREQ_REQUIRED]		= "required",
 	[NVMF_TREQ_NOT_REQUIRED]	= "not required",
-	[NVMF_TREQ_DISABLE_SQFLOW]	= "not specified, "
-					  "sq flow control disable supported",
+	[NVMF_TREQ_NOT_SPECIFIED |
+	 NVMF_TREQ_DISABLE_SQFLOW]	= "not specified, "
+				"sq flow control disable supported",
+	[NVMF_TREQ_REQUIRED |
+	 NVMF_TREQ_DISABLE_SQFLOW]	= "required, "
+				"sq flow control disable supported",
+	[NVMF_TREQ_NOT_REQUIRED |
+	 NVMF_TREQ_DISABLE_SQFLOW]	= "not required, "
+				"sq flow control disable supported",
 };
 
 const char *nvmf_treq_str(__u8 treq)
@@ -114,7 +127,7 @@ const char *nvmf_treq_str(__u8 treq)
 }
 
 static const char * const eflags_strings[] = {
-	[NVMF_DISC_EFLAGS_NONE]		= "not specified",
+	[NVMF_DISC_EFLAGS_NONE]		= "none",
 	[NVMF_DISC_EFLAGS_EPCSD]	= "explicit discovery connections",
 	[NVMF_DISC_EFLAGS_DUPRETINFO]	= "duplicate discovery information",
 	[NVMF_DISC_EFLAGS_EPCSD |
@@ -210,6 +223,8 @@ static struct nvme_fabrics_config *merge_config(nvme_ctrl_t c,
 			  NVMF_DEF_CTRL_LOSS_TMO);
 	MERGE_CFG_OPTION(ctrl_cfg, cfg, fast_io_fail_tmo, 0);
 	MERGE_CFG_OPTION(ctrl_cfg, cfg, tos, -1);
+	MERGE_CFG_OPTION(ctrl_cfg, cfg, keyring, 0);
+	MERGE_CFG_OPTION(ctrl_cfg, cfg, tls_key, 0);
 	MERGE_CFG_OPTION(ctrl_cfg, cfg, duplicate_connect, false);
 	MERGE_CFG_OPTION(ctrl_cfg, cfg, disable_sqflow, false);
 	MERGE_CFG_OPTION(ctrl_cfg, cfg, hdr_digest, false);
@@ -237,6 +252,8 @@ void nvmf_update_config(nvme_ctrl_t c, const struct nvme_fabrics_config *cfg)
 			  NVMF_DEF_CTRL_LOSS_TMO);
 	UPDATE_CFG_OPTION(ctrl_cfg, cfg, fast_io_fail_tmo, 0);
 	UPDATE_CFG_OPTION(ctrl_cfg, cfg, tos, -1);
+	UPDATE_CFG_OPTION(ctrl_cfg, cfg, keyring, 0);
+	UPDATE_CFG_OPTION(ctrl_cfg, cfg, tls_key, 0);
 	UPDATE_CFG_OPTION(ctrl_cfg, cfg, duplicate_connect, false);
 	UPDATE_CFG_OPTION(ctrl_cfg, cfg, disable_sqflow, false);
 	UPDATE_CFG_OPTION(ctrl_cfg, cfg, hdr_digest, false);
@@ -459,6 +476,7 @@ static int build_options(nvme_host_t h, nvme_ctrl_t c, char **argstr)
 	}
 	if (!strcmp(nvme_ctrl_get_subsysnqn(c), NVME_DISC_SUBSYS_NAME)) {
 		nvme_ctrl_set_discovery_ctrl(c, true);
+		nvme_ctrl_set_unique_discovery_ctrl(c, false);
 		discovery_nqn = true;
 	}
 	if (nvme_ctrl_is_discovery_ctrl(c))
@@ -510,6 +528,9 @@ static int build_options(nvme_host_t h, nvme_ctrl_t c, char **argstr)
 			      cfg->fast_io_fail_tmo, false)) ||
 	    (strcmp(transport, "loop") &&
 	     add_int_argument(argstr, "tos", cfg->tos, true)) ||
+	    add_int_argument(argstr, "keyring", cfg->keyring, false) ||
+	    (!strcmp(transport, "tcp") &&
+	     add_int_argument(argstr, "tls_key", cfg->tls_key, false)) ||
 	    add_bool_argument(argstr, "duplicate_connect",
 			      cfg->duplicate_connect) ||
 	    add_bool_argument(argstr, "disable_sqflow",
@@ -560,6 +581,9 @@ static int __nvmf_add_ctrl(nvme_root_t r, const char *argstr)
 			break;
 		case EOPNOTSUPP:
 			ret = -ENVME_CONNECT_OPNOTSUPP;
+			break;
+		case ECONNREFUSED :
+			ret = -ENVME_CONNECT_CONNREFUSED;
 			break;
 		default:
 			ret = -ENVME_CONNECT_WRITE;
@@ -658,7 +682,8 @@ int nvmf_add_ctrl(nvme_host_t h, nvme_ctrl_t c,
 		return -1;
 	}
 
-	nvme_msg(h->r, LOG_INFO, "nvme%d: ctrl connected\n", ret);
+	nvme_msg(h->r, LOG_INFO, "nvme%d: %s connected\n", ret,
+		 nvme_ctrl_get_subsysnqn(c));
 	return nvme_init_ctrl(h, c, ret);
 }
 
@@ -678,8 +703,6 @@ nvme_ctrl_t nvmf_connect_disc_entry(nvme_host_t h,
 		switch (e->adrfam) {
 		case NVMF_ADDR_FAMILY_IP4:
 		case NVMF_ADDR_FAMILY_IP6:
-			strchomp(e->traddr, NVMF_TRADDR_SIZE - 1);
-			strchomp(e->trsvcid, NVMF_TRSVCID_SIZE - 1);
 			traddr = e->traddr;
 			trsvcid = e->trsvcid;
 			break;
@@ -694,7 +717,6 @@ nvme_ctrl_t nvmf_connect_disc_entry(nvme_host_t h,
         case NVMF_TRTYPE_FC:
 		switch (e->adrfam) {
 		case NVMF_ADDR_FAMILY_FC:
-			strchomp(e->traddr, NVMF_TRADDR_SIZE - 1);
 			traddr = e->traddr;
 			break;
 		default:
@@ -706,7 +728,6 @@ nvme_ctrl_t nvmf_connect_disc_entry(nvme_host_t h,
 		}
 		break;
 	case NVMF_TRTYPE_LOOP:
-		strchomp(e->traddr, NVMF_TRADDR_SIZE - 1);
 		traddr = strlen(e->traddr) ? e->traddr : NULL;
 		break;
 	default:
@@ -734,11 +755,15 @@ nvme_ctrl_t nvmf_connect_disc_entry(nvme_host_t h,
 	switch (e->subtype) {
 	case NVME_NQN_CURR:
 		nvme_ctrl_set_discovered(c, true);
+		nvme_ctrl_set_unique_discovery_ctrl(c,
+				strcmp(e->subnqn, NVME_DISC_SUBSYS_NAME));
 		break;
 	case NVME_NQN_DISC:
 		if (discover)
 			*discover = true;
 		nvme_ctrl_set_discovery_ctrl(c, true);
+		nvme_ctrl_set_unique_discovery_ctrl(c,
+				strcmp(e->subnqn, NVME_DISC_SUBSYS_NAME));
 		break;
 	default:
 		nvme_msg(h->r, LOG_ERR, "unsupported subtype %d\n",
@@ -746,6 +771,7 @@ nvme_ctrl_t nvmf_connect_disc_entry(nvme_host_t h,
 		fallthrough;
 	case NVME_NQN_NVME:
 		nvme_ctrl_set_discovery_ctrl(c, false);
+		nvme_ctrl_set_unique_discovery_ctrl(c, false);
 		break;
 	}
 
@@ -874,9 +900,37 @@ out_free_log:
 	return NULL;
 }
 
+static void sanitize_discovery_log_entry(struct nvmf_disc_log_entry  *e)
+{
+	switch (e->trtype) {
+	case NVMF_TRTYPE_RDMA:
+	case NVMF_TRTYPE_TCP:
+		switch (e->adrfam) {
+		case NVMF_ADDR_FAMILY_IP4:
+		case NVMF_ADDR_FAMILY_IP6:
+			strchomp(e->traddr, NVMF_TRADDR_SIZE);
+			strchomp(e->trsvcid, NVMF_TRSVCID_SIZE);
+			break;
+		}
+		break;
+        case NVMF_TRTYPE_FC:
+		switch (e->adrfam) {
+		case NVMF_ADDR_FAMILY_FC:
+			strchomp(e->traddr, NVMF_TRADDR_SIZE);
+			break;
+		}
+		break;
+	case NVMF_TRTYPE_LOOP:
+		strchomp(e->traddr, NVMF_TRADDR_SIZE);
+		break;
+	}
+}
+
 int nvmf_get_discovery_log(nvme_ctrl_t c, struct nvmf_discovery_log **logp,
 			   int max_retries)
 {
+	struct nvmf_discovery_log *log;
+
 	struct nvme_get_log_args args = {
 		.args_size = sizeof(args),
 		.fd = nvme_ctrl_get_fd(c),
@@ -893,12 +947,22 @@ int nvmf_get_discovery_log(nvme_ctrl_t c, struct nvmf_discovery_log **logp,
 		.rae = false,
 		.ot = false,
 	};
-	*logp = nvme_discovery_log(c, &args, max_retries);
-	return logp ? 0 : -1;
+
+	log = nvme_discovery_log(c, &args, max_retries);
+	if (!log)
+		return -1;
+
+	for (int i = 0; i < le64_to_cpu(log->numrec); i++)
+		sanitize_discovery_log_entry(&log->entries[i]);
+
+	*logp = log;
+	return 0;
 }
 
 struct nvmf_discovery_log *nvmf_get_discovery_wargs(struct nvme_get_discovery_args *args)
 {
+	struct nvmf_discovery_log *log;
+
 	struct nvme_get_log_args _args = {
 		.args_size = sizeof(_args),
 		.fd = nvme_ctrl_get_fd(args->c),
@@ -916,7 +980,14 @@ struct nvmf_discovery_log *nvmf_get_discovery_wargs(struct nvme_get_discovery_ar
 		.ot = false,
 	};
 
-	return nvme_discovery_log(args->c, &_args, args->max_retries);
+	log = nvme_discovery_log(args->c, &_args, args->max_retries);
+	if (!log)
+		return NULL;
+
+	for (int i = 0; i < le64_to_cpu(log->numrec); i++)
+		sanitize_discovery_log_entry(&log->entries[i]);
+
+	return log;
 }
 
 #define PATH_UUID_IBM	"/proc/device-tree/ibm,partition-uuid"
@@ -941,12 +1012,37 @@ static int uuid_from_device_tree(char *system_uuid)
 
 #define PATH_DMI_ENTRIES       "/sys/firmware/dmi/entries"
 
+/*
+ * See System Management BIOS (SMBIOS) Reference Specification
+ * https://www.dmtf.org/sites/default/files/standards/documents/DSP0134_3.2.0.pdf
+ */
+#define DMI_SYSTEM_INFORMATION	1
+
+static bool is_dmi_uuid_valid(const char *buf, size_t len)
+{
+	int i;
+
+	/* UUID bytes are from byte 8 to 23 */
+	if (len < 24)
+		return false;
+
+	/* Test it's a invalid UUID with all zeros */
+	for (i = 8; i < 24; i++) {
+		if (buf[i])
+			break;
+	}
+	if (i == 24)
+		return false;
+
+	return true;
+}
+
 static int uuid_from_dmi_entries(char *system_uuid)
 {
 	int f;
 	DIR *d;
 	struct dirent *de;
-	char buf[512];
+	char buf[512] = {0};
 
 	system_uuid[0] = '\0';
 	d = opendir(PATH_DMI_ENTRIES);
@@ -964,11 +1060,11 @@ static int uuid_from_dmi_entries(char *system_uuid)
 			continue;
 		len = read(f, buf, 512);
 		close(f);
-		if (len < 0)
+		if (len <= 0)
 			continue;
 		if (sscanf(buf, "%d", &type) != 1)
 			continue;
-		if (type != 1)
+		if (type != DMI_SYSTEM_INFORMATION)
 			continue;
 		sprintf(filename, "%s/%s/raw", PATH_DMI_ENTRIES, de->d_name);
 		f = open(filename, O_RDONLY);
@@ -976,8 +1072,10 @@ static int uuid_from_dmi_entries(char *system_uuid)
 			continue;
 		len = read(f, buf, 512);
 		close(f);
-		if (len < 0)
+
+		if (!is_dmi_uuid_valid(buf, len))
 			continue;
+
 		/* Sigh. https://en.wikipedia.org/wiki/Overengineering */
 		/* DMTF SMBIOS 3.0 Section 7.2.1 System UUID */
 		sprintf(system_uuid,
@@ -1127,7 +1225,7 @@ static __u32 nvmf_get_tel(const char *hostsymname)
 	__u16 len;
 
 	/* Host ID is mandatory */
-	tel += nvmf_exat_size(NVME_UUID_LEN_STRING);
+	tel += nvmf_exat_size(NVME_UUID_LEN);
 
 	/* Symbolic name is optional */
 	len = hostsymname ? strlen(hostsymname) : 0;

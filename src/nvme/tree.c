@@ -252,6 +252,19 @@ void nvme_host_set_dhchap_key(nvme_host_t h, const char *key)
 		h->dhchap_key = strdup(key);
 }
 
+void nvme_host_set_pdc_enabled(nvme_host_t h, bool enabled)
+{
+	h->pdc_enabled_valid = true;
+	h->pdc_enabled = enabled;
+}
+
+bool nvme_host_is_pdc_enabled(nvme_host_t h, bool fallback)
+{
+	if (h->pdc_enabled_valid)
+		return h->pdc_enabled;
+	return fallback;
+}
+
 nvme_subsystem_t nvme_first_subsystem(nvme_host_t h)
 {
 	return list_top(&h->subsystems, struct nvme_subsystem, entry);
@@ -350,6 +363,7 @@ static void __nvme_free_ns(struct nvme_ns *n)
 /* Stub for SWIG */
 void nvme_free_ns(struct nvme_ns *n)
 {
+	__nvme_free_ns(n);
 }
 
 static void __nvme_free_subsystem(struct nvme_subsystem *s)
@@ -446,6 +460,7 @@ static void __nvme_free_host(struct nvme_host *h)
 /* Stub for SWIG */
 void nvme_free_host(struct nvme_host *h)
 {
+	__nvme_free_host(h);
 }
 
 struct nvme_host *nvme_lookup_host(nvme_root_t r, const char *hostnqn,
@@ -870,6 +885,16 @@ bool nvme_ctrl_is_discovery_ctrl(nvme_ctrl_t c)
 	return c->discovery_ctrl;
 }
 
+void nvme_ctrl_set_unique_discovery_ctrl(nvme_ctrl_t c, bool unique)
+{
+	c->unique_discovery_ctrl = unique;
+}
+
+bool nvme_ctrl_is_unique_discovery_ctrl(nvme_ctrl_t c)
+{
+	return c->unique_discovery_ctrl;
+}
+
 int nvme_ctrl_identify(nvme_ctrl_t c, struct nvme_id_ctrl *id)
 {
 	return nvme_identify_ctrl(nvme_ctrl_get_fd(c), id);
@@ -931,7 +956,7 @@ int nvme_disconnect_ctrl(nvme_ctrl_t c)
 			 c->name, errno);
 		return ret;
 	}
-	nvme_msg(r, LOG_INFO, "%s: disconnected\n", c->name);
+	nvme_msg(r, LOG_INFO, "%s: %s disconnected\n", c->name, c->subsysnqn);
 	nvme_deconfigure_ctrl(c);
 	return 0;
 }
@@ -1833,9 +1858,34 @@ static nvme_ns_t nvme_ns_open(const char *name)
 close_fd:
 	close(n->fd);
 free_ns:
+	free(n->generic_name);
 	free(n->name);
 	free(n);
 	return NULL;
+}
+
+static inline bool nvme_ns_is_generic(const char *name)
+{
+	int instance, head_instance;
+
+	if (sscanf(name, "ng%dn%d", &instance, &head_instance) != 2)
+		return false;
+	return true;
+}
+
+static char *nvme_ns_generic_to_blkdev(const char *generic)
+{
+
+	int instance, head_instance;
+	char blkdev[PATH_MAX];
+
+	if (!nvme_ns_is_generic(generic))
+		return strdup(generic);
+
+	sscanf(generic, "ng%dn%d", &instance, &head_instance);
+	sprintf(blkdev, "nvme%dn%d", instance, head_instance);
+
+	return strdup(blkdev);
 }
 
 static struct nvme_ns *__nvme_scan_namespace(const char *sysfs_dir, const char *name)
@@ -1843,22 +1893,33 @@ static struct nvme_ns *__nvme_scan_namespace(const char *sysfs_dir, const char *
 	struct nvme_ns *n;
 	char *path;
 	int ret;
+	char *blkdev;
 
-	ret = asprintf(&path, "%s/%s", sysfs_dir, name);
-	if (ret < 0) {
+	blkdev = nvme_ns_generic_to_blkdev(name);
+	if (!blkdev) {
 		errno = ENOMEM;
 		return NULL;
 	}
 
-	n = nvme_ns_open(name);
+	ret = asprintf(&path, "%s/%s", sysfs_dir, blkdev);
+	if (ret < 0) {
+		errno = ENOMEM;
+		goto free_blkdev;
+	}
+
+	n = nvme_ns_open(blkdev);
 	if (!n)
 		goto free_path;
 
 	n->sysfs_dir = path;
+
+	free(blkdev);
 	return n;
 
 free_path:
 	free(path);
+free_blkdev:
+	free(blkdev);
 	return NULL;
 }
 

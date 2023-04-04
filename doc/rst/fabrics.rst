@@ -27,6 +27,8 @@ Fabrics-specific definitions.
     int nr_write_queues;
     int nr_poll_queues;
     int tos;
+    int keyring;
+    int tls_key;
     bool duplicate_connect;
     bool disable_sqflow;
     bool hdr_digest;
@@ -68,6 +70,12 @@ Fabrics-specific definitions.
 
 ``tos``
   Type of service
+
+``keyring``
+  Keyring to store and lookup keys
+
+``tls_key``
+  TLS PSK for the connection
 
 ``duplicate_connect``
   Allow multiple connections to the same target
@@ -424,9 +432,15 @@ identifier, or NULL if not successful.
 
 .. c:function:: char * nvmf_hostnqn_from_file ()
 
-   Reads the host nvm qualified name from the config default location in /etc/nvme/
+   Reads the host nvm qualified name from the config default location
 
 **Parameters**
+
+**Description**
+
+
+Retrieve the qualified name from the config file located in $SYSCONFIDR/nvme.
+$SYSCONFDIR is usually /etc.
 
 **Return**
 
@@ -436,9 +450,15 @@ is responsible to free the string.
 
 .. c:function:: char * nvmf_hostid_from_file ()
 
-   Reads the host identifier from the config default location in /etc/nvme/.
+   Reads the host identifier from the config default location
 
 **Parameters**
+
+**Description**
+
+
+Retrieve the host idenditifer from the config file located in $SYSCONFDIR/nvme/.
+$SYSCONFDIR is usually /etc.
 
 **Return**
 

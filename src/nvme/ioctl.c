@@ -430,6 +430,48 @@ int nvme_get_log(struct nvme_get_log_args *args)
 	return nvme_submit_admin_passthru(args->fd, &cmd, args->result);
 }
 
+int nvme_get_log_page(int fd, __u32 xfer_len, struct nvme_get_log_args *args)
+{
+	__u64 offset = 0, xfer, data_len = args->len;
+	__u64 start = args->lpo;
+	bool retain = true;
+	void *ptr = args->log;
+	int ret;
+
+	args->fd = fd;
+
+	/*
+	 * 4k is the smallest possible transfer unit, so restricting to 4k
+	 * avoids having to check the MDTS value of the controller.
+	 */
+	do {
+		xfer = data_len - offset;
+		if (xfer > xfer_len)
+			xfer  = xfer_len;
+
+		/*
+		 * Always retain regardless of the RAE parameter until the very
+		 * last portion of this log page so the data remains latched
+		 * during the fetch sequence.
+		 */
+		if (offset + xfer == data_len)
+			retain = args->rae;
+
+		args->lpo = start + offset;
+		args->len = xfer;
+		args->log = ptr;
+		args->rae = retain;
+		ret = nvme_get_log(args);
+		if (ret)
+			return ret;
+
+		offset += xfer;
+		ptr += xfer;
+	} while (offset < data_len);
+
+	return 0;
+}
+
 int nvme_set_features(struct nvme_set_features_args *args)
 {
 	__u32 cdw10 = NVME_SET(args->fid, FEATURES_CDW10_FID) |
@@ -1855,6 +1897,50 @@ int nvme_resv_report(struct nvme_resv_report_args *args)
 		return -1;
 	}
 	return nvme_submit_io_passthru(args->fd, &cmd, args->result);
+}
+
+int nvme_io_mgmt_recv(struct nvme_io_mgmt_recv_args *args)
+{
+	__u32 cdw10 = (args->mo & 0xf) | (args->mos & 0xff << 16);
+	__u32 cdw11 = (args->data_len >> 2) - 1;
+
+	struct nvme_passthru_cmd cmd = {
+		.opcode		= nvme_cmd_io_mgmt_recv,
+		.nsid		= args->nsid,
+		.cdw10		= cdw10,
+		.cdw11		= cdw11,
+		.addr		= (__u64)(uintptr_t)args->data,
+		.data_len	= args->data_len,
+		.timeout_ms	= args->timeout,
+	};
+
+	if (args->args_size < sizeof(*args)) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	return nvme_submit_io_passthru(args->fd, &cmd, NULL);
+}
+
+int nvme_io_mgmt_send(struct nvme_io_mgmt_send_args *args)
+{
+	__u32 cdw10 = (args->mo & 0xf) | ((args->mos & 0xff) << 16);
+
+	struct nvme_passthru_cmd cmd = {
+		.opcode		= nvme_cmd_io_mgmt_send,
+		.nsid		= args->nsid,
+		.cdw10		= cdw10,
+		.addr		= (__u64)(uintptr_t)args->data,
+		.data_len	= args->data_len,
+		.timeout_ms	= args->timeout,
+	};
+
+	if (args->args_size < sizeof(*args)) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	return nvme_submit_io_passthru(args->fd, &cmd, NULL);
 }
 
 int nvme_zns_mgmt_send(struct nvme_zns_mgmt_send_args *args)

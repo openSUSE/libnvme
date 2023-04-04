@@ -442,8 +442,8 @@ static void test_admin_id(nvme_mi_ep_t ep)
 	assert(rc == 0);
 }
 
-/* test: simple NVMe error response */
-static int test_admin_err_resp_cb(struct nvme_mi_ep *ep,
+/* test: simple NVMe error response, error reported in the MI header */
+static int test_admin_err_mi_resp_cb(struct nvme_mi_ep *ep,
 				  struct nvme_mi_req *req,
 				  struct nvme_mi_resp *resp,
 				  void *data)
@@ -481,19 +481,85 @@ static int test_admin_err_resp_cb(struct nvme_mi_ep *ep,
 	return 0;
 }
 
-static void test_admin_err_resp(nvme_mi_ep_t ep)
+static void test_admin_err_mi_resp(nvme_mi_ep_t ep)
 {
 	struct nvme_id_ctrl id;
 	nvme_mi_ctrl_t ctrl;
 	int rc;
 
-	test_set_transport_callback(ep, test_admin_err_resp_cb, NULL);
+	test_set_transport_callback(ep, test_admin_err_mi_resp_cb, NULL);
 
 	ctrl = nvme_mi_init_ctrl(ep, 1);
 	assert(ctrl);
 
 	rc = nvme_mi_admin_identify_ctrl(ctrl, &id);
 	assert(rc != 0);
+	assert(nvme_status_get_type(rc) == NVME_STATUS_TYPE_MI);
+	assert(nvme_status_get_value(rc) == NVME_MI_RESP_INTERNAL_ERR);
+}
+
+/* test: NVMe Admin error, with the error reported in the Admin response */
+static int test_admin_err_nvme_resp_cb(struct nvme_mi_ep *ep,
+				  struct nvme_mi_req *req,
+				  struct nvme_mi_resp *resp,
+				  void *data)
+{
+	__u8 ror, mt, *hdr;
+
+	assert(req->hdr->type == NVME_MI_MSGTYPE_NVME);
+
+	ror = req->hdr->nmp >> 7;
+	mt = req->hdr->nmp >> 3 & 0x7;
+	assert(ror == NVME_MI_ROR_REQ);
+	assert(mt == NVME_MI_MT_ADMIN);
+
+	/* do we have enough for a mi header? */
+	assert(req->hdr_len == sizeof(struct nvme_mi_admin_req_hdr));
+
+	/* inspect response as raw bytes */
+	hdr = (__u8 *)req->hdr;
+	assert(hdr[4] == nvme_admin_identify);
+
+	/* we need at least 8 bytes for error information */
+	assert(resp->hdr_len >= sizeof(struct nvme_mi_admin_resp_hdr));
+
+	/* create error response */
+	hdr = (__u8 *)resp->hdr;
+	hdr[4] = 0; /* MI status: success */
+	hdr[5] = 0;
+	hdr[6] = 0;
+	hdr[7] = 0;
+
+	hdr[16] = 0; /* cdw3: SC: internal, SCT: generic, DNR */
+	hdr[17] = 0;
+	hdr[18] = 0x0c;
+	hdr[19] = 0x80;
+
+	resp->hdr_len = sizeof(struct nvme_mi_admin_resp_hdr);
+	resp->data_len = 0;
+
+	test_transport_resp_calc_mic(resp);
+
+	return 0;
+}
+
+static void test_admin_err_nvme_resp(nvme_mi_ep_t ep)
+{
+	struct nvme_id_ctrl id;
+	nvme_mi_ctrl_t ctrl;
+	int rc;
+
+	test_set_transport_callback(ep, test_admin_err_nvme_resp_cb, NULL);
+
+	ctrl = nvme_mi_init_ctrl(ep, 1);
+	assert(ctrl);
+
+	rc = nvme_mi_admin_identify_ctrl(ctrl, &id);
+	assert(rc != 0);
+	assert(nvme_status_get_type(rc) == NVME_STATUS_TYPE_NVME);
+	assert(nvme_status_get_value(rc) ==
+	       (NVME_SC_INTERNAL | (NVME_SCT_GENERIC << NVME_SCT_SHIFT)
+		| NVME_SC_DNR));
 }
 
 /* invalid Admin command transfers */
@@ -509,8 +575,11 @@ static int test_admin_invalid_formats_cb(struct nvme_mi_ep *ep,
 
 static void test_admin_invalid_formats(nvme_mi_ep_t ep)
 {
+	struct {
+		struct nvme_mi_admin_req_hdr hdr;
+		uint8_t data[4];
+	} req = { 0 };
 	struct nvme_mi_admin_resp_hdr resp = { 0 };
-	struct nvme_mi_admin_req_hdr req = { 0 };
 	nvme_mi_ctrl_t ctrl;
 	size_t len;
 	int rc;
@@ -522,37 +591,37 @@ static void test_admin_invalid_formats(nvme_mi_ep_t ep)
 
 	/* unaligned req size */
 	len = 0;
-	rc = nvme_mi_admin_xfer(ctrl, &req, 1, &resp, 0, &len);
+	rc = nvme_mi_admin_xfer(ctrl, &req.hdr, 1, &resp, 0, &len);
 	assert(rc != 0);
 
 	/* unaligned resp size */
 	len = 1;
-	rc = nvme_mi_admin_xfer(ctrl, &req, 0, &resp, 0, &len);
+	rc = nvme_mi_admin_xfer(ctrl, &req.hdr, 0, &resp, 0, &len);
 	assert(rc != 0);
 
 	/* unaligned resp offset */
 	len = 4;
-	rc = nvme_mi_admin_xfer(ctrl, &req, 0, &resp, 1, &len);
+	rc = nvme_mi_admin_xfer(ctrl, &req.hdr, 0, &resp, 1, &len);
 	assert(rc != 0);
 
 	/* resp too large */
 	len = 4096 + 4;
-	rc = nvme_mi_admin_xfer(ctrl, &req, 0, &resp, 0, &len);
+	rc = nvme_mi_admin_xfer(ctrl, &req.hdr, 0, &resp, 0, &len);
 	assert(rc != 0);
 
 	/* resp offset too large */
 	len = 4;
-	rc = nvme_mi_admin_xfer(ctrl, &req, 0, &resp, (off_t)1 << 32, &len);
+	rc = nvme_mi_admin_xfer(ctrl, &req.hdr, 0, &resp, (off_t)1 << 32, &len);
 	assert(rc != 0);
 
 	/* resp offset with no len */
 	len = 0;
-	rc = nvme_mi_admin_xfer(ctrl, &req, 0, &resp, 4, &len);
+	rc = nvme_mi_admin_xfer(ctrl, &req.hdr, 0, &resp, 4, &len);
 	assert(rc != 0);
 
 	/* req and resp payloads */
 	len = 4;
-	rc = nvme_mi_admin_xfer(ctrl, &req, 4, &resp, 0, &len);
+	rc = nvme_mi_admin_xfer(ctrl, &req.hdr, 4, &resp, 0, &len);
 	assert(rc != 0);
 }
 
@@ -930,7 +999,7 @@ static int test_admin_set_features_cb(struct nvme_mi_ep *ep,
 static void test_set_features(nvme_mi_ep_t ep)
 {
 	struct nvme_set_features_args args = { 0 };
-	struct nvme_timestamp tstamp;
+	struct nvme_timestamp tstamp = { 0 };
 	nvme_mi_ctrl_t ctrl;
 	uint32_t res;
 	int rc, i;
@@ -1141,7 +1210,7 @@ static int test_admin_id_nsid_ctrl_list_cb(struct nvme_mi_ep *ep,
 	assert(req->data_len == 0);
 
 	cns = hdr[45] << 8 | hdr[44];
-	assert(cns == NVME_IDENTIFY_CNS_CTRL_LIST);
+	assert(cns == NVME_IDENTIFY_CNS_NS_CTRL_LIST);
 
 	nsid = hdr[11] << 24 | hdr[10] << 16 | hdr[9] << 8 | hdr[8];
 	assert(nsid == 0x01020304);
@@ -1273,7 +1342,7 @@ static int test_admin_ns_mgmt_cb(struct nvme_mi_ep *ep,
 
 static void test_admin_ns_mgmt_create(struct nvme_mi_ep *ep)
 {
-	struct nvme_id_ns nsid;
+	struct nvme_id_ns nsid = { 0 };
 	nvme_mi_ctrl_t ctrl;
 	__u32 ns;
 	int rc;
@@ -1287,7 +1356,7 @@ static void test_admin_ns_mgmt_create(struct nvme_mi_ep *ep)
 	assert(!rc);
 	assert(ns == 0x01020304);
 
-	nsid.nsze = 42;
+	nsid.nsze = cpu_to_le64(42);
 	rc = nvme_mi_admin_ns_mgmt_create(ctrl, &nsid, 0, &ns);
 	assert(rc);
 }
@@ -1710,6 +1779,7 @@ static int test_admin_get_log_split_cb(struct nvme_mi_ep *ep,
 				       struct nvme_mi_resp *resp,
 				       void *data)
 {
+	uint32_t log_page_offset_lower;
 	struct log_data *ldata = data;
 	uint32_t len, off;
 	__u8 *rq_hdr;
@@ -1724,19 +1794,25 @@ static int test_admin_get_log_split_cb(struct nvme_mi_ep *ep,
 	off = rq_hdr[31] << 24 | rq_hdr[30] << 16 | rq_hdr[29] << 8 | rq_hdr[28];
 	len = rq_hdr[35] << 24 | rq_hdr[34] << 16 | rq_hdr[33] << 8 | rq_hdr[32];
 
+	/* From the MI message's Command Dword 12 */
+	log_page_offset_lower = rq_hdr[55] << 24 | rq_hdr[54] << 16 | rq_hdr[53] << 8 | rq_hdr[52];
+
 	/* we should have a full-sized start and middle, and a short end */
 	switch (ldata->n) {
 	case 0:
+		assert(log_page_offset_lower == 0);
 		assert(len == 4096);
 		assert(off == 0);
 		break;
 	case 1:
+		assert(log_page_offset_lower == 4096);
 		assert(len == 4096);
-		assert(off == 4096);
+		assert(off == 0);
 		break;
 	case 2:
+		assert(log_page_offset_lower == 8192);
 		assert(len == 4);
-		assert(off == 4096 * 2);
+		assert(off == 0);
 		break;
 	default:
 		assert(0);
@@ -1755,8 +1831,8 @@ static int test_admin_get_log_split_cb(struct nvme_mi_ep *ep,
 
 static void test_admin_get_log_split(struct nvme_mi_ep *ep)
 {
+	struct nvme_get_log_args args = { 0 };
 	unsigned char buf[4096 * 2 + 4];
-	struct nvme_get_log_args args;
 	struct log_data ldata;
 	nvme_mi_ctrl_t ctrl;
 	int rc;
@@ -1770,6 +1846,8 @@ static void test_admin_get_log_split(struct nvme_mi_ep *ep)
 	args.lid = 1;
 	args.log = buf;
 	args.len = sizeof(buf);
+	args.lpo = 0;
+	args.ot = false;
 
 	rc = nvme_mi_admin_get_log(ctrl, &args);
 
@@ -1792,7 +1870,8 @@ struct test {
 	DEFINE_TEST(scan_ctrl_list),
 	DEFINE_TEST(invalid_crc),
 	DEFINE_TEST(admin_id),
-	DEFINE_TEST(admin_err_resp),
+	DEFINE_TEST(admin_err_mi_resp),
+	DEFINE_TEST(admin_err_nvme_resp),
 	DEFINE_TEST(admin_invalid_formats),
 	DEFINE_TEST(resp_req),
 	DEFINE_TEST(resp_hdr_small),

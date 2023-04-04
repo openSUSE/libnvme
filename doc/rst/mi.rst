@@ -635,6 +635,25 @@ new root object, or NULL on failure.
   root to free
 
 
+.. c:function:: void nvme_mi_set_probe_enabled (nvme_root_t root, bool enabled)
+
+   enable/disable the probe for new endpoints
+
+**Parameters**
+
+``nvme_root_t root``
+  :c:type:`nvme_root_t` object
+
+``bool enabled``
+  whether to probe new endpoints
+
+**Description**
+
+Controls whether newly-created endpoints are probed for quirks on creation.
+Defaults to enabled, which results in some initial messaging with the
+endpoint to determine model-specific details.
+
+
 
 
 .. c:type:: nvme_mi_ep_t
@@ -1427,6 +1446,85 @@ The nvme command status if a response was received (see
 :c:type:`enum nvme_status_field <nvme_status_field>`) or -1 with errno set otherwise..
 
 
+.. c:function:: int nvme_mi_admin_admin_passthru (nvme_mi_ctrl_t ctrl, __u8 opcode, __u8 flags, __u16 rsvd, __u32 nsid, __u32 cdw2, __u32 cdw3, __u32 cdw10, __u32 cdw11, __u32 cdw12, __u32 cdw13, __u32 cdw14, __u32 cdw15, __u32 data_len, void *data, __u32 metadata_len, void *metadata, __u32 timeout_ms, __u32 *result)
+
+   Submit an nvme admin passthrough command
+
+**Parameters**
+
+``nvme_mi_ctrl_t ctrl``
+  Controller to send command to
+
+``__u8 opcode``
+  The nvme admin command to send
+
+``__u8 flags``
+  NVMe command flags (not used)
+
+``__u16 rsvd``
+  Reserved for future use
+
+``__u32 nsid``
+  Namespace identifier
+
+``__u32 cdw2``
+  Command dword 2
+
+``__u32 cdw3``
+  Command dword 3
+
+``__u32 cdw10``
+  Command dword 10
+
+``__u32 cdw11``
+  Command dword 11
+
+``__u32 cdw12``
+  Command dword 12
+
+``__u32 cdw13``
+  Command dword 13
+
+``__u32 cdw14``
+  Command dword 14
+
+``__u32 cdw15``
+  Command dword 15
+
+``__u32 data_len``
+  Length of the data transferred in this command in bytes
+
+``void *data``
+  Pointer to user address of the data buffer
+
+``__u32 metadata_len``
+  Length of metadata transferred in this command(not used)
+
+``void *metadata``
+  Pointer to user address of the metadata buffer(not used)
+
+``__u32 timeout_ms``
+  How long to wait for the command to complete
+
+``__u32 *result``
+  Optional field to return the result from the CQE dword 0
+
+**Description**
+
+Send a customized NVMe Admin command request message and get the corresponding
+response message.
+
+This interface supports no data, host to controller and controller to
+host but it doesn't support bidirectional data transfer.
+Also this interface only supports data transfer size range [0, 4096] (bytes)
+so the & data_len parameter must be less than 4097.
+
+**Return**
+
+The nvme command status if a response was received (see
+:c:type:`enum nvme_status_field <nvme_status_field>`) or -1 with errno set otherwise.
+
+
 .. c:function:: int nvme_mi_admin_identify_partial (nvme_mi_ctrl_t ctrl, struct nvme_identify_args *args, off_t offset, size_t size)
 
    Perform an Admin identify command, and retrieve partial response data.
@@ -1837,6 +1935,39 @@ See: :c:type:`struct nvme_secondary_ctrl_list <nvme_secondary_ctrl_list>`
 **Return**
 
 0 on success, non-zero on failure
+
+
+.. c:function:: int nvme_mi_admin_get_log_page (nvme_mi_ctrl_t ctrl, __u32 xfer_len, struct nvme_get_log_args *args)
+
+   Retrieve log page data from controller
+
+**Parameters**
+
+``nvme_mi_ctrl_t ctrl``
+  Controller to query
+
+``__u32 xfer_len``
+  The chunk size of the read
+
+``struct nvme_get_log_args *args``
+  Get Log Page command arguments
+
+**Description**
+
+Performs a Get Log Page Admin command as specified by **args**. Response data
+is stored in **args->data**, which should be a buffer of **args->data_len** bytes.
+Resulting data length is stored in **args->data_len** on successful
+command completion.
+
+This request may be implemented as multiple log page commands, in order
+to fit within MI message-size limits.
+
+See: :c:type:`struct nvme_get_log_args <nvme_get_log_args>`
+
+**Return**
+
+The nvme command status if a response was received (see
+:c:type:`enum nvme_status_field <nvme_status_field>`) or -1 with errno set otherwise.
 
 
 .. c:function:: int nvme_mi_admin_get_log (nvme_mi_ctrl_t ctrl, struct nvme_get_log_args *args)

@@ -107,6 +107,28 @@ const char *nvme_host_get_dhchap_key(nvme_host_t h);
 void nvme_host_set_dhchap_key(nvme_host_t h, const char *key);
 
 /**
+ * nvme_host_set_pdc_enabled() - Set Persistent Discovery Controller flag
+ * @h:		Host for which the falg should be set
+ * @enabled:	The bool to set the enabled flag
+ *
+ * When nvme_host_set_pdc_enabled() is not used to set the PDC flag,
+ * nvme_host_is_pdc_enabled() will return the default value which was
+ * passed into the function and not the undefined flag value.
+ */
+void nvme_host_set_pdc_enabled(nvme_host_t h, bool enabled);
+
+/**
+ * nvme_host_is_pdc_enabled() - Is Persistenct Discovery Controller enabled
+ * @h: 		Host which to check if PDC is enabled
+ * @fallback:	The fallback default value of the flag when
+ * 		@nvme_host_set_pdc_enabled has not be used
+ * 		to set the flag.
+ *
+ * Return: true if PDC is enabled for @h, else false
+ */
+bool nvme_host_is_pdc_enabled(nvme_host_t h, bool fallback);
+
+/**
  * nvme_default_host() - Initializes the default host
  * @r:	&nvme_root_t object
  *
@@ -967,6 +989,25 @@ void nvme_ctrl_set_discovery_ctrl(nvme_ctrl_t c, bool discovery);
  * Return: Value of the 'discover_ctrl' flag
  */
 bool nvme_ctrl_is_discovery_ctrl(nvme_ctrl_t c);
+
+/**
+ * nvme_ctrl_set_unique_discovery_ctrl() - Set the 'unique_discovery_ctrl' flag
+ * @c:		Controller to be modified
+ * @unique:	value of the unique_disc_ctrl flag
+ *
+ * Sets the 'unique_discovery_ctrl' flag in @c to specify wheter
+ * @c is a unique discovery controller
+ *
+ */
+void nvme_ctrl_set_unique_discovery_ctrl(nvme_ctrl_t c, bool unique);
+
+/**
+ * nvme_ctrl_is_unique_discovery_ctrl() - Check the 'unique_discovery_ctrl' flag
+ * @c:		Controller to be checked
+ *
+ * Return: Value of the 'unique_discovery_ctrl' flag
+ */
+bool nvme_ctrl_is_unique_discovery_ctrl(nvme_ctrl_t c);
 
 /**
  * nvme_ctrl_identify() - Issues an 'identify controller' command

@@ -1155,6 +1155,9 @@ power scale value
 ``NVME_CTRL_CTRATT_ELBAS``
   Extended LBA Formats supported
 
+``NVME_CTRL_CTRATT_FDPS``
+  Flexible Data Placement supported
+
 
 
 
@@ -2753,8 +2756,8 @@ power scale value
     __u8 wzsl;
     __u8 wusl;
     __u8 dmrl;
-    __u32 dmrsl;
-    __u64 dmsl;
+    __le32 dmrsl;
+    __le64 dmsl;
     __u8 rsvd16[4080];
   };
 
@@ -3145,7 +3148,7 @@ power scale value
 ::
 
   struct nvme_id_iocs {
-    __u64 iocsc[512];
+    __le64 iocsc[512];
   };
 
 **Members**
@@ -3295,10 +3298,12 @@ Supported Log Pages (Log Identifier 00h)
     __le32 nsid;
     __u8 vs;
     __u8 trtype;
-    __u8 rsvd[2];
+    __u8 csi;
+    __u8 opcode;
     __le64 cs;
     __le16 trtype_spec_info;
-    __u8 rsvd2[22];
+    __u8 rsvd[21];
+    __u8 log_page_version;
   };
 
 **Members**
@@ -3374,8 +3379,14 @@ Supported Log Pages (Log Identifier 00h)
   is transport related, this field shall be set to the type
   of the transport - see :c:type:`enum nvme_trtype <nvme_trtype>`.
 
-``rsvd``
-  Reserved
+``csi``
+  Command Set Indicator: This field contains command set
+  indicator for the command that the error is associated
+  with.
+
+``opcode``
+  Opcode: This field contains opcode for the command that
+  the error is associated with.
 
 ``cs``
   Command Specific Information: This field contains command
@@ -3385,8 +3396,12 @@ Supported Log Pages (Log Identifier 00h)
 ``trtype_spec_info``
   Transport Type Specific Information
 
-``rsvd2``
-  Reserved
+``rsvd``
+  Reserved: [62:42]
+
+``log_page_version``
+  This field shall be set to 1h. If set, **csi** and **opcode**
+  will have valid values.
 
 
 
@@ -3943,6 +3958,9 @@ Supported Log Pages (Log Identifier 00h)
 
 ``NVME_ST_CODE_VS``
   Vendor specific.
+
+``NVME_ST_CODE_ABORT``
+  Abort device self-test operation.
 
 ``NVME_ST_CODE_SHIFT``
   Shift amount to get the code value from the
@@ -4770,6 +4788,35 @@ bytes, in size. This log captures the controller’s internal state.
 
 ``vndr_assign_fw_commit_rc``
   Vendor Assigned Firmware Commit Result Code
+
+
+
+
+
+.. c:struct:: nvme_timestamp
+
+   Timestamp - Data Structure for Get Features
+
+**Definition**
+
+::
+
+  struct nvme_timestamp {
+    __u8 timestamp[6];
+    __u8 attr;
+    __u8 rsvd;
+  };
+
+**Members**
+
+``timestamp``
+  Timestamp value based on origin and synch field
+
+``attr``
+  Attribute
+
+``rsvd``
+  Reserved
 
 
 
@@ -6175,6 +6222,598 @@ bytes, in size. This log captures the controller’s internal state.
 
 
 
+.. c:enum:: nvme_fdp_ruh_type
+
+   Reclaim Unit Handle Type
+
+**Constants**
+
+``NVME_FDP_RUHT_INITIALLY_ISOLATED``
+  Initially Isolated
+
+``NVME_FDP_RUHT_PERSISTENTLY_ISOLATED``
+  Persistently Isolated
+
+
+
+
+.. c:struct:: nvme_fdp_ruh_desc
+
+   Reclaim Unit Handle Descriptor
+
+**Definition**
+
+::
+
+  struct nvme_fdp_ruh_desc {
+    __u8 ruht;
+    __u8 rsvd1[3];
+  };
+
+**Members**
+
+``ruht``
+  Reclaim Unit Handle Type
+
+``rsvd1``
+  Reserved
+
+
+
+
+
+.. c:enum:: nvme_fdp_config_fdpa
+
+   FDP Attributes
+
+**Constants**
+
+``NVME_FDP_CONFIG_FDPA_RGIF_SHIFT``
+  Reclaim Group Identifier Format Shift
+
+``NVME_FDP_CONFIG_FDPA_RGIF_MASK``
+  Reclaim Group Identifier Format Mask
+
+``NVME_FDP_CONFIG_FDPA_FDPVWC_SHIFT``
+  FDP Volatile Write Cache Shift
+
+``NVME_FDP_CONFIG_FDPA_FDPVWC_MASK``
+  FDP Volatile Write Cache Mask
+
+``NVME_FDP_CONFIG_FDPA_VALID_SHIFT``
+  FDP Configuration Valid Shift
+
+``NVME_FDP_CONFIG_FDPA_VALID_MASK``
+  FDP Configuration Valid Mask
+
+
+
+
+.. c:struct:: nvme_fdp_config_desc
+
+   FDP Configuration Descriptor
+
+**Definition**
+
+::
+
+  struct nvme_fdp_config_desc {
+    __le16 size;
+    __u8 fdpa;
+    __u8 vss;
+    __le32 nrg;
+    __le16 nruh;
+    __le16 maxpids;
+    __le32 nnss;
+    __le64 runs;
+    __le32 erutl;
+    __u8 rsvd28[36];
+    struct nvme_fdp_ruh_desc ruhs[];
+  };
+
+**Members**
+
+``size``
+  Descriptor size
+
+``fdpa``
+  FDP Attributes (:c:type:`enum nvme_fdp_config_fdpa <nvme_fdp_config_fdpa>`)
+
+``vss``
+  Vendor Specific Size
+
+``nrg``
+  Number of Reclaim Groups
+
+``nruh``
+  Number of Reclaim Unit Handles
+
+``maxpids``
+  Max Placement Identifiers
+
+``nnss``
+  Number of Namespaces Supported
+
+``runs``
+  Reclaim Unit Nominal Size
+
+``erutl``
+  Estimated Reclaim Unit Time Limit
+
+``rsvd28``
+  Reserved
+
+``ruhs``
+  Reclaim Unit Handle descriptors (:c:type:`struct nvme_fdp_ruh_desc <nvme_fdp_ruh_desc>`)
+
+
+
+
+
+.. c:struct:: nvme_fdp_config_log
+
+   FDP Configurations Log Page
+
+**Definition**
+
+::
+
+  struct nvme_fdp_config_log {
+    __le16 n;
+    __u8 version;
+    __u8 rsvd3;
+    __le32 size;
+    __u8 rsvd8[8];
+    struct nvme_fdp_config_desc configs[];
+  };
+
+**Members**
+
+``n``
+  Number of FDP Configurations
+
+``version``
+  Log page version
+
+``rsvd3``
+  Reserved
+
+``size``
+  Log page size in bytes
+
+``rsvd8``
+  Reserved
+
+``configs``
+  FDP Configuration descriptors (:c:type:`struct nvme_fdp_config_desc <nvme_fdp_config_desc>`)
+
+
+
+
+
+.. c:enum:: nvme_fdp_ruha
+
+   Reclaim Unit Handle Attributes
+
+**Constants**
+
+``NVME_FDP_RUHA_HOST_SHIFT``
+  Host Specified Reclaim Unit Handle Shift
+
+``NVME_FDP_RUHA_HOST_MASK``
+  Host Specified Reclaim Unit Handle Mask
+
+``NVME_FDP_RUHA_CTRL_SHIFT``
+  Controller Specified Reclaim Unit Handle Shift
+
+``NVME_FDP_RUHA_CTRL_MASK``
+  Controller Specified Reclaim Unit Handle Mask
+
+
+
+
+.. c:struct:: nvme_fdp_ruhu_desc
+
+   Reclaim Unit Handle Usage Descriptor
+
+**Definition**
+
+::
+
+  struct nvme_fdp_ruhu_desc {
+    __u8 ruha;
+    __u8 rsvd1[7];
+  };
+
+**Members**
+
+``ruha``
+  Reclaim Unit Handle Attributes (:c:type:`enum nvme_fdp_ruha <nvme_fdp_ruha>`)
+
+``rsvd1``
+  Reserved
+
+
+
+
+
+.. c:struct:: nvme_fdp_ruhu_log
+
+   Reclaim Unit Handle Usage Log Page
+
+**Definition**
+
+::
+
+  struct nvme_fdp_ruhu_log {
+    __le16 nruh;
+    __u8 rsvd2[6];
+    struct nvme_fdp_ruhu_desc ruhus[];
+  };
+
+**Members**
+
+``nruh``
+  Number of Reclaim Unit Handles
+
+``rsvd2``
+  Reserved
+
+``ruhus``
+  Reclaim Unit Handle Usage descriptors
+
+
+
+
+
+.. c:struct:: nvme_fdp_stats_log
+
+   FDP Statistics Log Page
+
+**Definition**
+
+::
+
+  struct nvme_fdp_stats_log {
+    __u8 hbmw[16];
+    __u8 mbmw[16];
+    __u8 mbe[16];
+    __u8 rsvd48[16];
+  };
+
+**Members**
+
+``hbmw``
+  Host Bytes with Metadata Written
+
+``mbmw``
+  Media Bytes with Metadata Written
+
+``mbe``
+  Media Bytes Erased
+
+``rsvd48``
+  Reserved
+
+
+
+
+
+.. c:enum:: nvme_fdp_event_type
+
+   FDP Event Types
+
+**Constants**
+
+``NVME_FDP_EVENT_RUNFW``
+  Reclaim Unit Not Fully Written
+
+``NVME_FDP_EVENT_RUTLE``
+  Reclaim Unit Time Limit Exceeded
+
+``NVME_FDP_EVENT_RESET``
+  Controller Level Reset Modified Reclaim Unit Handles
+
+``NVME_FDP_EVENT_PID``
+  Invalid Placement Identifier
+
+``NVME_FDP_EVENT_REALLOC``
+  Media Reallocated
+
+``NVME_FDP_EVENT_MODIFY``
+  Implicitly Modified Reclaim Unit Handle
+
+
+
+
+.. c:enum:: nvme_fdp_event_realloc_flags
+
+   Media Reallocated Event Type Specific Flags
+
+**Constants**
+
+``NVME_FDP_EVENT_REALLOC_F_LBAV``
+  LBA Valid
+
+
+
+
+.. c:struct:: nvme_fdp_event_realloc
+
+   Media Reallocated Event Type Specific Information
+
+**Definition**
+
+::
+
+  struct nvme_fdp_event_realloc {
+    __u8 flags;
+    __u8 rsvd1;
+    __le16 nlbam;
+    __le64 lba;
+    __u8 rsvd12[4];
+  };
+
+**Members**
+
+``flags``
+  Event Type Specific flags (:c:type:`enum nvme_fdp_event_realloc_flags <nvme_fdp_event_realloc_flags>`)
+
+``rsvd1``
+  Reserved
+
+``nlbam``
+  Number of LBAs Moved
+
+``lba``
+  Logical Block Address
+
+``rsvd12``
+  Reserved
+
+
+
+
+
+.. c:enum:: nvme_fdp_event_flags
+
+   FDP Event Flags
+
+**Constants**
+
+``NVME_FDP_EVENT_F_PIV``
+  Placement Identifier Valid
+
+``NVME_FDP_EVENT_F_NSIDV``
+  Namespace Identifier Valid
+
+``NVME_FDP_EVENT_F_LV``
+  Location Valid
+
+
+
+
+.. c:struct:: nvme_fdp_event
+
+   FDP Event
+
+**Definition**
+
+::
+
+  struct nvme_fdp_event {
+    __u8 type;
+    __u8 flags;
+    __le16 pid;
+    struct nvme_timestamp ts;
+    __le32 nsid;
+    __u8 type_specific[16];
+    __le16 rgid;
+    __u8 ruhid;
+    __u8 rsvd35[5];
+    __u8 vs[24];
+  };
+
+**Members**
+
+``type``
+  Event Type (:c:type:`enum nvme_fdp_event_type <nvme_fdp_event_type>`)
+
+``flags``
+  Event Flags (:c:type:`enum nvme_fdp_event_flags <nvme_fdp_event_flags>`)
+
+``pid``
+  Placement Identifier
+
+``ts``
+  Timestamp
+
+``nsid``
+  Namespace Identifier
+
+``type_specific``
+  Event Type Specific Information
+
+``rgid``
+  Reclaim Group Identifier
+
+``ruhid``
+  Reclaim Unit Handle Identifier
+
+``rsvd35``
+  Reserved
+
+``vs``
+  Vendor Specific
+
+
+
+
+
+.. c:struct:: nvme_fdp_events_log
+
+   FDP Events Log Page
+
+**Definition**
+
+::
+
+  struct nvme_fdp_events_log {
+    __le32 n;
+    __u8 rsvd4[60];
+    struct nvme_fdp_event events[63];
+  };
+
+**Members**
+
+``n``
+  Number of FDP Events
+
+``rsvd4``
+  Reserved
+
+``events``
+  FDP Events (:c:type:`struct nvme_fdp_event <nvme_fdp_event>`)
+
+
+
+
+
+.. c:struct:: nvme_feat_fdp_events_cdw11
+
+   FDP Events Feature Command Dword 11
+
+**Definition**
+
+::
+
+  struct nvme_feat_fdp_events_cdw11 {
+    __le16 phndl;
+    __u8 noet;
+    __u8 rsvd24;
+  };
+
+**Members**
+
+``phndl``
+  Placement Handle
+
+``noet``
+  Number of FDP Event Types
+
+``rsvd24``
+  Reserved
+
+
+
+
+
+.. c:enum:: nvme_fdp_supported_event_attributes
+
+   Supported FDP Event Attributes
+
+**Constants**
+
+``NVME_FDP_SUPP_EVENT_ENABLED_SHIFT``
+  FDP Event Enable Shift
+
+``NVME_FDP_SUPP_EVENT_ENABLED_MASK``
+  FDP Event Enable Mask
+
+
+
+
+.. c:struct:: nvme_fdp_supported_event_desc
+
+   Supported FDP Event Descriptor
+
+**Definition**
+
+::
+
+  struct nvme_fdp_supported_event_desc {
+    __u8 evt;
+    __u8 evta;
+  };
+
+**Members**
+
+``evt``
+  FDP Event Type
+
+``evta``
+  FDP Event Type Attributes (:c:type:`enum nvme_fdp_supported_event_attributes <nvme_fdp_supported_event_attributes>`)
+
+
+
+
+
+.. c:struct:: nvme_fdp_ruh_status_desc
+
+   Reclaim Unit Handle Status Descriptor
+
+**Definition**
+
+::
+
+  struct nvme_fdp_ruh_status_desc {
+    __le16 pid;
+    __le16 ruhid;
+    __le32 earutr;
+    __le64 ruamw;
+    __u8 rsvd16[16];
+  };
+
+**Members**
+
+``pid``
+  Placement Identifier
+
+``ruhid``
+  Reclaim Unit Handle Identifier
+
+``earutr``
+  Estimated Active Reclaim Unit Time Remaining
+
+``ruamw``
+  Reclaim Unit Available Media Writes
+
+``rsvd16``
+  Reserved
+
+
+
+
+
+.. c:struct:: nvme_fdp_ruh_status
+
+   Reclaim Unit Handle Status
+
+**Definition**
+
+::
+
+  struct nvme_fdp_ruh_status {
+    __u8 rsvd0[14];
+    __le16 nruhsd;
+    struct nvme_fdp_ruh_status_desc ruhss[];
+  };
+
+**Members**
+
+``rsvd0``
+  Reserved
+
+``nruhsd``
+  Number of Reclaim Unit Handle Status Descriptors
+
+``ruhss``
+  Reclaim Unit Handle Status descriptors
+
+
+
+
+
 .. c:struct:: nvme_lba_status_desc
 
    LBA Status Descriptor Entry
@@ -6298,7 +6937,7 @@ bytes, in size. This log captures the controller’s internal state.
   struct nvme_metadata_element_desc {
     __u8 type;
     __u8 rev;
-    __u16 len;
+    __le16 len;
     __u8 val[0];
   };
 
@@ -6446,35 +7085,6 @@ bytes, in size. This log captures the controller’s internal state.
 
 
 
-.. c:struct:: nvme_timestamp
-
-   Timestamp - Data Structure for Get Features
-
-**Definition**
-
-::
-
-  struct nvme_timestamp {
-    __u8 timestamp[6];
-    __u8 attr;
-    __u8 rsvd;
-  };
-
-**Members**
-
-``timestamp``
-  Timestamp value based on origin and synch field
-
-``attr``
-  Attribute
-
-``rsvd``
-  Reserved
-
-
-
-
-
 .. c:struct:: nvme_lba_range_type_entry
 
    LBA Range Type - Data Structure Entry
@@ -6487,8 +7097,8 @@ bytes, in size. This log captures the controller’s internal state.
     __u8 type;
     __u8 attributes;
     __u8 rsvd2[14];
-    __u64 slba;
-    __u64 nlb;
+    __le64 slba;
+    __le64 nlb;
     __u8 guid[16];
     __u8 rsvd48[16];
   };
@@ -6692,8 +7302,8 @@ bytes, in size. This log captures the controller’s internal state.
     __le16 nlb;
     __u8 rsvd18[6];
     __le32 eilbrt;
-    __le16 elbatm;
     __le16 elbat;
+    __le16 elbatm;
   };
 
 **Members**
@@ -6714,11 +7324,11 @@ bytes, in size. This log captures the controller’s internal state.
   Expected Initial Logical Block Reference Tag /
   Expected Logical Block Storage Tag
 
-``elbatm``
-  Expected Logical Block Application Tag Mask
-
 ``elbat``
   Expected Logical Block Application Tag
+
+``elbatm``
+  Expected Logical Block Application Tag Mask
 
 
 
@@ -6738,8 +7348,8 @@ bytes, in size. This log captures the controller’s internal state.
     __le16 nlb;
     __u8 rsvd18[8];
     __u8 elbt[10];
-    __le16 elbatm;
     __le16 elbat;
+    __le16 elbatm;
   };
 
 **Members**
@@ -6760,11 +7370,11 @@ bytes, in size. This log captures the controller’s internal state.
   Expected Initial Logical Block Reference Tag /
   Expected Logical Block Storage Tag
 
-``elbatm``
-  Expected Logical Block Application Tag Mask
-
 ``elbat``
   Expected Logical Block Application Tag
+
+``elbatm``
+  Expected Logical Block Application Tag Mask
 
 
 
@@ -7034,6 +7644,9 @@ bytes, in size. This log captures the controller’s internal state.
 ``NVME_ID_DIR_SD_BIT``
   Streams directive is supported
 
+``NVME_ID_DIR_DP_BIT``
+  Direct Placement directive is supported
+
 
 
 
@@ -7278,7 +7891,7 @@ bytes, in size. This log captures the controller’s internal state.
       __u8 prtype;
       __u8 cms;
       __u8 rsvd3[5];
-      __u16 pkey;
+      __le16 pkey;
       __u8 rsvd10[246];
     } rdma;
     struct tcp {
@@ -9884,6 +10497,18 @@ true if **status** is of the specified type and value
 ``NVME_LOG_LID_BOOT_PARTITION``
   Boot Partition
 
+``NVME_LOG_LID_FDP_CONFIGS``
+  FDP Configurations
+
+``NVME_LOG_LID_FDP_RUH_USAGE``
+  Reclaim Unit Handle Usage
+
+``NVME_LOG_LID_FDP_STATS``
+  FDP Statistics
+
+``NVME_LOG_LID_FDP_EVENTS``
+  FDP Events
+
 ``NVME_LOG_LID_DISCOVER``
   Discovery
 
@@ -9982,6 +10607,12 @@ true if **status** is of the specified type and value
 
 ``NVME_FEAT_FID_SPINUP_CONTROL``
   Spinup Control
+
+``NVME_FEAT_FID_FDP``
+  Flexible Data Placement
+
+``NVME_FEAT_FID_FDP_EVENTS``
+  FDP Events
 
 ``NVME_FEAT_FID_ENH_CTRL_METADATA``
   Enhanced Controller Metadata
@@ -10211,6 +10842,18 @@ true if **status** is of the specified type and value
 ``NVME_FEAT_IOCSP_IOCSCI_SHIFT``
 
 ``NVME_FEAT_IOCSP_IOCSCI_MASK``
+
+``NVME_FEAT_FDP_ENABLED_SHIFT``
+
+``NVME_FEAT_FDP_ENABLED_MASK``
+
+``NVME_FEAT_FDP_INDEX_SHIFT``
+
+``NVME_FEAT_FDP_INDEX_MASK``
+
+``NVME_FEAT_FDP_EVENTS_ENABLE_SHIFT``
+
+``NVME_FEAT_FDP_EVENTS_ENABLE_MASK``
 
 
 
@@ -10776,11 +11419,17 @@ true if **status** is of the specified type and value
 ``nvme_cmd_resv_acquire``
   Reservation Acquire
 
+``nvme_cmd_io_mgmt_recv``
+  I/O Management Receive
+
 ``nvme_cmd_resv_release``
   Reservation Release
 
 ``nvme_cmd_copy``
   Copy
+
+``nvme_cmd_io_mgmt_send``
+  I/O Management Send
 
 ``nvme_zns_cmd_mgmt_send``
   Zone Management Send
@@ -11077,5 +11726,29 @@ true if **status** is of the specified type and value
 
 ``NVME_ZNS_ZRAS_REPORT_OFFLINE``
   List the zones in the ZSO:Offline state
+
+
+
+
+.. c:enum:: nvme_io_mgmt_recv_mo
+
+   I/O Management Receive - Management Operation
+
+**Constants**
+
+``NVME_IO_MGMT_RECV_RUH_STATUS``
+  Reclaim Unit Handle Status
+
+
+
+
+.. c:enum:: nvme_io_mgmt_send_mo
+
+   I/O Management Send - Management Operation
+
+**Constants**
+
+``NVME_IO_MGMT_SEND_RUH_UPDATE``
+  Reclaim Unit Handle Update
 
 
