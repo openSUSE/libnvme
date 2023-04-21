@@ -12,7 +12,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "tree.h"
-#include "nbft.h"
 
 /**
  * DOC: fabrics.h

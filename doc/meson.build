@@ -16,7 +16,6 @@ api_files = [
   'mi.h',
   'tree.h',
   'types.h',
-  'nbft.h',
   'fabrics.h',
   'util.h'
 ]
