@@ -31,7 +31,6 @@ else
 endif
 
 deps = [
-    libuuid_dep,
     json_c_dep,
     openssl_dep,
     keyutils_dep,
@@ -71,7 +70,6 @@ pkg.generate(libnvme,
 libnvme_dep = declare_dependency(
     include_directories: ['.'],
     dependencies: [
-      libuuid_dep.partial_dependency(compile_args: true, includes: true),
       json_c_dep.partial_dependency(compile_args: true, includes: true),
     ],
     link_with: libnvme,
