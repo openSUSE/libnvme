@@ -783,7 +783,7 @@ struct nvmf_ext_attr *nvmf_exat_ptr_next(struct nvmf_ext_attr *p)
 		((uintptr_t)p + (ptrdiff_t)nvmf_exat_size(le16_to_cpu(p->exatlen)));
 }
 
-bool ipaddrs_eq(const char *addr1, const char *addr2) {
+bool nvme_ipaddrs_eq(const char *addr1, const char *addr2) {
 	bool result = false;
 	struct addrinfo *info1 = NULL, hint1 = { .ai_flags=AI_NUMERICHOST, .ai_family=AF_UNSPEC };
 	struct addrinfo *info2 = NULL, hint2 = { .ai_flags=AI_NUMERICHOST, .ai_family=AF_UNSPEC };
@@ -791,7 +791,7 @@ bool ipaddrs_eq(const char *addr1, const char *addr2) {
 	if (addr1 == addr2)
 		return true;
 
-	if (!addr1 || ! addr2)
+	if (!addr1 || !addr2)
 		return false;
 
 	if (getaddrinfo(addr1, 0, &hint1, &info1) || !info1)

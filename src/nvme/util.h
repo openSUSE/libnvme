@@ -545,12 +545,12 @@ static inline __u16 nvmf_exat_size(size_t val_len)
 struct nvmf_ext_attr *nvmf_exat_ptr_next(struct nvmf_ext_attr *p);
 
 /**
- * ipaddrs_eq - Check if 2 IP addresses are equal.
+ * nvme_ipaddrs_eq - Check if 2 IP addresses are equal.
  * @addr1: IP address (can be IPv4 or IPv6)
  * @addr2: IP address (can be IPv4 or IPv6)
  *
  * Return: true if addr1 == addr2. false otherwise.
  */
-bool ipaddrs_eq(const char *addr1, const char *addr2);
+bool nvme_ipaddrs_eq(const char *addr1, const char *addr2);
 
 #endif /* _LIBNVME_UTIL_H */
