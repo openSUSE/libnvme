@@ -155,4 +155,9 @@ __nvme_msg(nvme_root_t r, int lvl, const char *func, const char *format, ...);
 				   format, ##__VA_ARGS__);		\
 	} while (0)
 
+#define root_from_ctrl(c) ((c)->s && (c)->s->h ? (c)->s->h->r : NULL)
+#define root_from_ns(n) ((n)->s && (n)->s->h ? (n)->s->h->r : \
+			 (n)->c && (n)->c->s && (n)->c->s->h ? (n)->c->s->h->r : \
+			 NULL)
+
 #endif /* _LIBNVME_PRIVATE_H */
