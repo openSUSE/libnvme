@@ -79,9 +79,10 @@ int nvme_get_nsid(int fd, __u32 *nsid)
 	return -1 * (errno != 0);
 }
 
-static int nvme_submit_passthru64(int fd, unsigned long ioctl_cmd,
-				  struct nvme_passthru_cmd64 *cmd,
-				  __u64 *result)
+__attribute__((weak))
+int nvme_submit_passthru64(int fd, unsigned long ioctl_cmd,
+			   struct nvme_passthru_cmd64 *cmd,
+			   __u64 *result)
 {
 	int err = ioctl(fd, ioctl_cmd, cmd);
 
@@ -126,8 +127,9 @@ bool nvme_get_debug(void)
 	return nvme_debug;
 }
 
-static int nvme_submit_passthru(int fd, unsigned long ioctl_cmd,
-				struct nvme_passthru_cmd *cmd, __u32 *result)
+__attribute__((weak))
+int nvme_submit_passthru(int fd, unsigned long ioctl_cmd,
+			 struct nvme_passthru_cmd *cmd, __u32 *result)
 {
 	struct timeval start;
 	struct timeval end;
