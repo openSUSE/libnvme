@@ -1109,6 +1109,11 @@ const char *nvme_ctrl_get_dhchap_host_key(nvme_ctrl_t c)
 	return c->dhchap_key;
 }
 
+const char *nvme_ctrl_get_cntlid(nvme_ctrl_t c)
+{
+	return c->cntlid;
+}
+
 void nvme_ctrl_set_dhchap_host_key(nvme_ctrl_t c, const char *key)
 {
 	if (c->dhchap_key) {
@@ -1218,6 +1223,7 @@ void nvme_deconfigure_ctrl(nvme_ctrl_t c)
 	FREE_CTRL_ATTR(c->address);
 	FREE_CTRL_ATTR(c->dctype);
 	FREE_CTRL_ATTR(c->cntrltype);
+	FREE_CTRL_ATTR(c->cntlid);
 	FREE_CTRL_ATTR(c->phy_slot);
 }
 
@@ -1901,6 +1907,7 @@ static int nvme_configure_ctrl(nvme_root_t r, nvme_ctrl_t c, const char *path,
 		}
 	}
 	c->cntrltype = nvme_get_ctrl_attr(c, "cntrltype");
+	c->cntlid = nvme_get_ctrl_attr(c, "cntlid");
 	c->dctype = nvme_get_ctrl_attr(c, "dctype");
 	c->phy_slot = nvme_ctrl_lookup_phy_slot(r, c->address);
 
