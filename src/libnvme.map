@@ -2,6 +2,8 @@
 LIBNVME_1.10 {
 	global:
 		nvme_revoke_tls_key;
+		nvmf_hostid_generate;
+		nvmf_hostnqn_generate_from_hostid;
 };
 
 LIBNVME_1.9 {
