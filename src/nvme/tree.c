@@ -369,6 +369,11 @@ void nvme_root_set_application(nvme_root_t r, const char *a)
 		r->application = strdup(a);
 }
 
+void nvme_root_skip_namespaces(nvme_root_t r)
+{
+	r->create_only = true;
+}
+
 nvme_host_t nvme_first_host(nvme_root_t r)
 {
 	return list_top(&r->hosts, struct nvme_host, entry);
@@ -737,6 +742,12 @@ static int nvme_subsystem_scan_namespaces(nvme_root_t r, nvme_subsystem_t s,
 	_cleanup_dirents_ struct dirents namespaces = {};
 	int i, ret;
 
+	if (r->create_only) {
+		nvme_msg(r, LOG_DEBUG,
+			 "skipping namespace scan for subsys %s\n",
+			 s->subsysnqn);
+		return 0;
+	}
 	namespaces.num = nvme_scan_subsystem_namespaces(s, &namespaces.ents);
 	if (namespaces.num < 0) {
 		nvme_msg(r, LOG_DEBUG,
@@ -1819,6 +1830,11 @@ static int nvme_ctrl_scan_paths(nvme_root_t r, struct nvme_ctrl *c)
 	_cleanup_dirents_ struct dirents paths = {};
 	int i;
 
+	if (r->create_only) {
+		nvme_msg(r, LOG_DEBUG,
+			 "skipping path scan for ctrl %s\n", c->name);
+		return 0;
+	}
 	paths.num = nvme_scan_ctrl_namespace_paths(c, &paths.ents);
 	if (paths.num < 0)
 		return paths.num;
@@ -1834,6 +1850,11 @@ static int nvme_ctrl_scan_namespaces(nvme_root_t r, struct nvme_ctrl *c)
 	_cleanup_dirents_ struct dirents namespaces = {};
 	int i;
 
+	if (r->create_only) {
+		nvme_msg(r, LOG_DEBUG, "skipping namespace scan for ctrl %s\n",
+			 c->name);
+		return 0;
+	}
 	namespaces.num = nvme_scan_ctrl_namespaces(c, &namespaces.ents);
 	for (i = 0; i < namespaces.num; i++)
 		nvme_ctrl_scan_namespace(r, c, namespaces.ents[i]->d_name);
