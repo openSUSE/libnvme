@@ -1878,7 +1878,7 @@ enum nvme_id_nsfeat {
 	NVME_NS_FEAT_NATOMIC		= 1 << 1,
 	NVME_NS_FEAT_DULBE		= 1 << 2,
 	NVME_NS_FEAT_ID_REUSE		= 1 << 3,
-	NVME_NS_FEAT_IO_OPT		= 1 << 4,
+	NVME_NS_FEAT_IO_OPT		= 3 << 4,
 };
 
 /**
@@ -2281,14 +2281,16 @@ struct nvme_id_ctrl_nvm {
  * @pic:	Protection Information Capabilities
  * @rsvd9:	Reserved
  * @elbaf:	List of Extended LBA Format Support
- * @rsvd268:	Reserved
+ * @npdgl:	Namespace Preferred Deallocate Granularity Large
+ * @rsvd272:	Reserved
  */
 struct nvme_nvm_id_ns {
 	__le64	lbstm;
 	__u8	pic;
 	__u8	rsvd9[3];
 	__le32	elbaf[64];
-	__u8	rsvd268[3828];
+	__le32	npdgl;
+	__u8	rsvd272[3824];
 };
 
 /**
