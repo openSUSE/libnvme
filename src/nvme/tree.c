@@ -1865,7 +1865,9 @@ static int nvme_configure_ctrl(nvme_root_t r, nvme_ctrl_t c, const char *path,
 			       const char *name)
 {
 	DIR *d;
-	char *host_key, *ctrl_key, *tls_psk;
+	char *host_key, *ctrl_key;
+
+	_cleanup_free_ char *tls_psk = NULL;
 
 	d = opendir(path);
 	if (!d) {
