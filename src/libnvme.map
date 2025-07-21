@@ -1,4 +1,10 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
+LIBNVME_1_15 {
+	global:
+		nvme_insert_tls_key_compat;
+		nvme_generate_tls_key_identity_compat;
+};
+
 LIBNVME_1.13 {
 	global:
 		nvme_subsystem_get_fw_rev;
