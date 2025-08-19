@@ -1524,9 +1524,9 @@ long nvme_revoke_tls_key(const char *keyring, const char *key_type,
 	return keyctl_revoke(key);
 }
 
-static int __nvme_insert_tls_key(long keyring_id,
-				 const char *hostnqn, const char *subsysnqn,
-				 const char *identity, const char *key)
+static long __nvme_import_tls_key(long keyring_id,
+				  const char *hostnqn, const char *subsysnqn,
+				  const char *identity, const char *key)
 {
 	_cleanup_free_ unsigned char *key_data = NULL;
 	unsigned char version;
@@ -1597,7 +1597,7 @@ int __nvme_import_keys_from_config(nvme_host_t h, nvme_ctrl_t c,
 		id = nvme_lookup_key("psk", identity);
 
 	if (!id)
-		id = __nvme_insert_tls_key(kr_id, hostnqn,
+		id = __nvme_import_tls_key(kr_id, hostnqn,
 					   subsysnqn, identity, key);
 
 	if (id <= 0) {
