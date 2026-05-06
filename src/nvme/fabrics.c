@@ -1012,6 +1012,9 @@ int nvmf_connect_ctrl(nvme_ctrl_t c)
 static void nvmf_update_tls_concat(struct nvmf_disc_log_entry *e,
 		nvme_ctrl_t c, nvme_host_t h)
 {
+	if (!e)
+		return;
+
 	if (e->trtype != NVMF_TRTYPE_TCP ||
 	    e->tsas.tcp.sectype == NVMF_TCP_SECTYPE_NONE)
 		return;
